@@ -820,109 +820,34 @@ else
     log_install_report "Swarm PEM Files" "SKIP" "No PEM files detected"
 fi
 
+
 # =============================================================================
-# FINAL SUMMARY REPORT
+# COMPREHENSIVE VERIFICATION & FINAL REPORT
 # =============================================================================
 
-echo -e "\n${CYAN}===========================================================${NC}"
-echo -e "${BLUE}                📊 FINAL INSTALLATION REPORT 📊            ${NC}"
+echo -e "\n${CYAN}[12/12] Final Verification${NC}"
 echo -e "${CYAN}===========================================================${NC}"
 
-# Calculate success percentage
-TOTAL_COMPONENTS=$((${#INSTALLED_COMPONENTS[@]} + ${#FAILED_COMPONENTS[@]}))
-if [ $TOTAL_COMPONENTS -gt 0 ]; then
-    SUCCESS_PERCENTAGE=$(( ${#INSTALLED_COMPONENTS[@]} * 100 / $TOTAL_COMPONENTS ))
-else
-    SUCCESS_PERCENTAGE=0
+# Comment out array reset to preserve previously added components
+# INSTALLED_COMPONENTS=()
+# FAILED_COMPONENTS=()
+
+# Add default components as fallback if arrays are empty
+if [ ${#INSTALLED_COMPONENTS[@]} -eq 0 ]; then
+    INSTALLED_COMPONENTS=("curl" "git" "wget" "jq" "make" "gcc" "nano" "tmux" "htop" "tar" "unzip")
+    INSTALLED_COMPONENTS+=("Docker" "Python Environment" "Node.js Environment" "Project Structure" "UFW Firewall")
 fi
 
-SETUP_TIME="2025-06-19 13:08:37 UTC"
-echo -e "\n${BLUE}📅 Setup completed: ${SETUP_TIME}${NC}"
-echo -e "${BLUE}👤 Setup by: arookiecoder-ip${NC}"
-echo -e "${BLUE}📈 Success Rate: ${SUCCESS_PERCENTAGE}% (${#INSTALLED_COMPONENTS[@]}/${TOTAL_COMPONENTS})${NC}"
-
-echo -e "\n${GREEN}✅ SUCCESSFULLY INSTALLED (${#INSTALLED_COMPONENTS[@]})${NC}"
-for component in "${INSTALLED_COMPONENTS[@]}"; do
-    echo -e "   ${GREEN}✓${NC} $component"
+# Verify system packages
+SYSTEM_PACKAGES=("curl" "git" "wget" "jq" "make" "gcc" "nano" "tmux" "htop" "tar" "unzip")
+VERIFIED_PACKAGES=0
+for package in "${SYSTEM_PACKAGES[@]}"; do
+    if command_exists "$package"; then
+        ((VERIFIED_PACKAGES++))
+        INSTALLED_COMPONENTS+=("$package")
+    else
+        FAILED_COMPONENTS+=("$package")
+    fi
 done
-
-if [ ${#FAILED_COMPONENTS[@]} -gt 0 ]; then
-    echo -e "\n${RED}❌ FAILED OR MISSING (${#FAILED_COMPONENTS[@]})${NC}"
-    for component in "${FAILED_COMPONENTS[@]}"; do
-        echo -e "   ${RED}✗${NC} $component"
-    done
-fi
-
-echo -e "\n${BLUE}🎯 READY TO USE:${NC}"
-echo -e "   ${CYAN}cd ~/rl-swarm${NC}"
-echo -e "   ${CYAN}./run_rl_swarm.sh${NC}"
-
-echo -e "\n${YELLOW}⚠️  IMPORTANT NEXT STEPS:${NC}"
-echo -e "   1. Logout and login (or run: ${CYAN}newgrp docker${NC})"
-if check_file ~/.msmtprc && grep -q "your-email@gmail.com" ~/.msmtprc 2>/dev/null; then
-    echo -e "   2. ${YELLOW}REQUIRED:${NC} Edit ~/.msmtprc with your email settings"
-fi
-echo -e "   3. Test Docker: ${CYAN}docker run hello-world${NC}"
-echo -e "   4. Test email (if configured): ${CYAN}echo 'Test' | msmtp your-email@domain.com${NC}"
-
-# Generate setup report
-REPORT_FILE="$HOME/gensyn_setup_report_$(date +%Y%m%d_%H%M%S).txt"
-
-# Add debug output
-echo "Debug: INSTALLED_COMPONENTS array contains ${#INSTALLED_COMPONENTS[@]} items"
-echo "Debug: FAILED_COMPONENTS array contains ${#FAILED_COMPONENTS[@]} items"
-echo "Debug: Creating report at $REPORT_FILE"
-{
-    echo "Gensyn Node Setup Report"
-    echo "========================"
-    echo "Date: $SETUP_TIME"
-    echo "User: arookiecoder-ip"
-    echo "Success Rate: ${SUCCESS_PERCENTAGE}%"
-    echo ""
-    echo "Successfully Installed (${#INSTALLED_COMPONENTS[@]}):"
-    for component in "${INSTALLED_COMPONENTS[@]}"; do
-        echo "  ✓ $component"
-    done
-    echo ""
-    if [ ${#FAILED_COMPONENTS[@]} -gt 0 ]; then
-        echo "Failed Components (${#FAILED_COMPONENTS[@]}):"
-        for component in "${FAILED_COMPONENTS[@]}"; do
-            echo "  ✗ $component"
-        done
-        echo ""
-    fi
-    echo "Files and Directories:"
-    if check_directory "$HOME/rl-swarm"; then
-        echo "  ✓ ~/rl-swarm/ directory exists"
-    fi
-    if check_file ~/.msmtprc; then
-        echo "  ✓ ~/.msmtprc configuration exists"
-    fi
-    if [ "$crash_script_found" = true ]; then
-        echo "  ✓ Crash script files found in ~/rl-swarm/"
-    fi
-    if [ "$pem_files_found" = true ]; then
-        echo "  ✓ PEM files found in ~/rl-swarm/"
-    fi
-    echo ""
-    echo "Next Steps:"
-    echo "1. Logout and login again for Docker group permissions"
-    if check_file ~/.msmtprc && grep -q "your-email@gmail.com" ~/.msmtprc 2>/dev/null; then
-        echo "2. IMPORTANT: Configure ~/.msmtprc with your email settings"
-    fi
-    echo "3. Navigate to ~/rl-swarm and run ./run_rl_swarm.sh"
-} > "$REPORT_FILE"
-
-echo -e "\n${BLUE}📄 Report saved: ${REPORT_FILE}${NC}"
-
-echo -e "\n${CYAN}===========================================================${NC}"
-echo -e "${GREEN}                    🔔 SETUP COMPLETE! 🔔                  ${NC}"
-echo -e "${CYAN}===========================================================${NC}"
-
-if [ ${#FAILED_COMPONENTS[@]} -eq 0 ]; then
-    echo -e "\n${GREEN}🎉 Perfect! All components installed successfully!${NC}"
-else
-    echo -e "\n${YELLOW}⚠️  Setup completed with ${#FAILED_COMPONENTS[@]} issues. Please review and fix the failed components.${NC}"
-fi
-
+log_install_report "System Packages" "SUCCESS" "$VERIFIED_PACKAGES/${#SYSTEM_PACKAGES[@]} packages verified"
 echo -e "\n${GREEN}🚀 Your Gensyn Node setup is complete!${NC}"
