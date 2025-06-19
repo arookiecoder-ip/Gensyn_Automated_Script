@@ -43,6 +43,56 @@ log_install_report() {
     fi
 }
 
+# Function to clone gist or regular git repository
+clone_repository() {
+    local url="$1"
+    local destination="$2"
+    local temp_dir=$(mktemp -d)
+    
+    # Check if it's a gist URL
+    if [[ "$url" == *"gist.github.com"* ]]; then
+        # Extract gist ID and clone
+        if git clone "$url.git" "$temp_dir" >/dev/null 2>&1; then
+            if [[ -n "$destination" ]]; then
+                mv "$temp_dir" "$destination" 2>/dev/null || cp -r "$temp_dir"/* "$destination/" 2>/dev/null
+            fi
+            return 0
+        else
+            rm -rf "$temp_dir" 2>/dev/null
+            return 1
+        fi
+    else
+        # Regular git repository
+        if git clone "$url" "$destination" >/dev/null 2>&1; then
+            return 0
+        else
+            return 1
+        fi
+    fi
+}
+
+# Function to download single file from gist
+download_gist_file() {
+    local gist_url="$1"
+    local destination="$2"
+    
+    # Convert gist URL to raw content URL
+    if [[ "$gist_url" == *"gist.github.com"* ]]; then
+        # Extract gist ID
+        gist_id=$(echo "$gist_url" | sed 's/.*gist.github.com\/[^\/]*\///g' | sed 's/\/.*//g')
+        
+        # Try to get raw content
+        raw_url="https://gist.githubusercontent.com/arookiecoder-ip/${gist_id}/raw/"
+        
+        if curl -s "$raw_url" -o "$destination" 2>/dev/null; then
+            return 0
+        else
+            return 1
+        fi
+    fi
+    return 1
+}
+
 # Function to verify installation
 verify_installation() {
     local component="$1"
@@ -72,6 +122,26 @@ verify_installation() {
 check_service() {
     local service_name="$1"
     if systemctl is-active --quiet "$service_name" && systemctl is-enabled --quiet "$service_name"; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Function to check file exists
+check_file() {
+    local file_path="$1"
+    if [[ -f "$file_path" ]]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Function to check directory exists
+check_directory() {
+    local dir_path="$1"
+    if [[ -d "$dir_path" ]]; then
         return 0
     else
         return 1
@@ -257,7 +327,7 @@ fi
 
 # Email Tools
 echo -e "\n${CYAN}[10/12] Email Tools${NC}"
-if sudo apt update >/dev/null 2>&1 && echo "msmtp msmtp/apparmor boolean false" | sudo debconf-set-selections && sudo apt install expect msmtp curl -y >/dev/null 2>&1; then
+if sudo apt update >/dev/null 2>&1 && DEBIAN_FRONTEND=noninteractive sudo apt install expect msmtp curl -y >/dev/null 2>&1; then
     log_install_report "Email Tools" "SUCCESS" "expect, msmtp, curl installed"
 else
     log_install_report "Email Tools" "FAILED" "Failed to install email tools"
@@ -275,7 +345,7 @@ if [ -f ~/.msmtprc ]; then
 else
     echo -e "\n${YELLOW}📧 MSMTP Email Configuration Setup${NC}"
     echo -e "${BLUE}Choose how you want to configure MSMTP:${NC}"
-    echo -e "  ${CYAN}1)${NC} Pull configuration from GitHub repository"
+    echo -e "  ${CYAN}1)${NC} Pull configuration from GitHub repository or Gist"
     echo -e "  ${CYAN}2)${NC} Paste configuration directly"
     echo -e "  ${CYAN}3)${NC} Create template file (edit manually later)"
     echo -e "  ${CYAN}4)${NC} Skip MSMTP configuration"
@@ -285,24 +355,42 @@ else
         read -p "Enter your choice (1-4): " msmtp_choice
         case $msmtp_choice in
             1)
-                echo -e "\n${YELLOW}📥 GitHub Repository Configuration${NC}"
-                read -p "Enter GitHub repository URL for MSMTP config (e.g., https://github.com/user/repo): " github_repo
-                read -p "Enter file path in repository (e.g., configs/msmtprc or .msmtprc): " file_path
+                echo -e "\n${YELLOW}📥 GitHub Repository/Gist Configuration${NC}"
+                read -p "Enter GitHub repository URL or Gist URL for MSMTP config: " github_repo
+                read -p "Enter file path in repository (e.g., .msmtprc or msmtprc) [default: .msmtprc]: " file_path
+                file_path=${file_path:-.msmtprc}
                 
-                if [[ -n "$github_repo" ]] && [[ -n "$file_path" ]]; then
-                    # Convert GitHub URL to raw content URL
-                    raw_url=$(echo "$github_repo" | sed 's|github.com|raw.githubusercontent.com|' | sed 's|/blob/||')
-                    if [[ ! "$raw_url" == *"/main/"* ]] && [[ ! "$raw_url" == *"/master/"* ]]; then
-                        raw_url="${raw_url}/main"
-                    fi
-                    full_url="${raw_url}/${file_path}"
+                if [[ -n "$github_repo" ]]; then
+                    success=false
                     
-                    echo -e "Downloading from: ${CYAN}$full_url${NC}"
-                    if curl -o ~/.msmtprc "$full_url" >/dev/null 2>&1; then
-                        chmod 600 ~/.msmtprc
-                        log_install_report "MSMTP Config (GitHub)" "SUCCESS" "Downloaded from $github_repo"
-                    else
-                        echo -e "${RED}❌ Failed to download from GitHub${NC}"
+                    # Try gist download first
+                    if [[ "$github_repo" == *"gist.github.com"* ]]; then
+                        if download_gist_file "$github_repo" ~/.msmtprc; then
+                            chmod 600 ~/.msmtprc
+                            log_install_report "MSMTP Config (Gist)" "SUCCESS" "Downloaded from gist"
+                            success=true
+                        fi
+                    fi
+                    
+                    # If gist failed or not a gist, try regular repo
+                    if [[ "$success" == "false" ]]; then
+                        # Convert GitHub URL to raw content URL
+                        raw_url=$(echo "$github_repo" | sed 's|github.com|raw.githubusercontent.com|' | sed 's|/blob/||')
+                        if [[ ! "$raw_url" == *"/main/"* ]] && [[ ! "$raw_url" == *"/master/"* ]]; then
+                            raw_url="${raw_url}/main"
+                        fi
+                        full_url="${raw_url}/${file_path}"
+                        
+                        echo -e "Downloading from: ${CYAN}$full_url${NC}"
+                        if curl -o ~/.msmtprc "$full_url" >/dev/null 2>&1; then
+                            chmod 600 ~/.msmtprc
+                            log_install_report "MSMTP Config (GitHub)" "SUCCESS" "Downloaded from $github_repo"
+                            success=true
+                        fi
+                    fi
+                    
+                    if [[ "$success" == "false" ]]; then
+                        echo -e "${RED}❌ Failed to download from GitHub/Gist${NC}"
                         echo -e "Please check the URL and file path. Creating template instead..."
                         msmtp_choice=3
                         continue
@@ -341,7 +429,7 @@ else
                 echo -e "\n${YELLOW}📄 Creating Template Configuration${NC}"
                 cat > ~/.msmtprc << 'EOF'
 # MSMTP Configuration File
-# Created on: 2025-06-19 12:03:37 UTC
+# Created on: 2025-06-19 12:42:42 UTC
 # User: arookiecoder-ip
 # 
 # Edit this file with your email settings
@@ -411,31 +499,15 @@ fi
 # Additional Files Setup
 echo -e "\n${CYAN}[11/12] Additional Files Setup${NC}"
 
-# 1. MSMTP Configuration (Main Directory)
-read -p "Enter MSMTP configuration repository URL (or press Enter to skip): " MSMTP_URL
-if [[ -n "$MSMTP_URL" ]]; then
-    if git clone "$MSMTP_URL" ~/msmtp-config-temp >/dev/null 2>&1; then
-        if [ -f ~/msmtp-config-temp/.msmtprc ] || [ -f ~/msmtp-config-temp/msmtprc ]; then
-            cp ~/msmtp-config-temp/.msmtprc ~/.msmtprc 2>/dev/null || cp ~/msmtp-config-temp/msmtprc ~/.msmtprc 2>/dev/null
-            chmod 600 ~/.msmtprc
-            rm -rf ~/msmtp-config-temp
-            log_install_report "MSMTP Config Repository" "SUCCESS" "Configuration installed to ~/.msmtprc"
-        else
-            rm -rf ~/msmtp-config-temp
-            log_install_report "MSMTP Config Repository" "FAILED" "No msmtprc file found in repository"
-        fi
-    else
-        log_install_report "MSMTP Config Repository" "FAILED" "Failed to clone MSMTP repository"
-    fi
-else
-    log_install_report "MSMTP Config Repository" "SKIP" "No URL provided"
-fi
+# 1. MSMTP Configuration (Main Directory) - Skip since handled above
+echo -e "MSMTP configuration already handled in previous step."
 
 # 2. Gensyn Crash Script (rl-swarm directory)
-read -p "Enter Gensyn crash script repository URL (or press Enter to skip): " CRASH_SCRIPT_URL
+read -p "Enter Gensyn crash script repository URL or Gist URL (or press Enter to skip): " CRASH_SCRIPT_URL
 if [[ -n "$CRASH_SCRIPT_URL" ]]; then
-    if git clone "$CRASH_SCRIPT_URL" ~/rl-swarm/ >/dev/null 2>&1; then
-        log_install_report "Gensyn Crash Script" "SUCCESS" "Cloned to ~/rl-swarm/"
+    mkdir -p ~/rl-swarm 2>/dev/null || true
+    if clone_repository "$CRASH_SCRIPT_URL" ~/rl-swarm/gensyn-crash-script; then
+        log_install_report "Gensyn Crash Script" "SUCCESS" "Cloned to ~/rl-swarm/gensyn-crash-script"
     else
         log_install_report "Gensyn Crash Script" "FAILED" "Failed to clone crash script repository"
     fi
@@ -444,10 +516,11 @@ else
 fi
 
 # 3. Swarm PEM File (rl-swarm directory)
-read -p "Enter Swarm PEM file repository URL (or press Enter to skip): " PEM_FILE_URL
+read -p "Enter Swarm PEM file repository URL or Gist URL (or press Enter to skip): " PEM_FILE_URL
 if [[ -n "$PEM_FILE_URL" ]]; then
-    if git clone "$PEM_FILE_URL" ~/rl-swarm/ >/dev/null 2>&1; then
-        log_install_report "Swarm PEM File" "SUCCESS" "Cloned to ~/rl-swarm/"
+    mkdir -p ~/rl-swarm 2>/dev/null || true
+    if clone_repository "$PEM_FILE_URL" ~/rl-swarm/swarm-pem-files; then
+        log_install_report "Swarm PEM File" "SUCCESS" "Cloned to ~/rl-swarm/swarm-pem-files"
     else
         log_install_report "Swarm PEM File" "FAILED" "Failed to clone PEM file repository"
     fi
@@ -462,70 +535,130 @@ fi
 echo -e "\n${CYAN}[12/12] Final Verification${NC}"
 echo -e "${CYAN}===========================================================${NC}"
 
-# Verify all installations
+# Reset arrays for final verification
+INSTALLED_COMPONENTS=()
+FAILED_COMPONENTS=()
+
+# Verify system packages
 SYSTEM_PACKAGES=("curl" "git" "wget" "jq" "make" "gcc" "nano" "tmux" "htop" "tar" "unzip")
 VERIFIED_PACKAGES=0
 for package in "${SYSTEM_PACKAGES[@]}"; do
     if command_exists "$package"; then
         ((VERIFIED_PACKAGES++))
+        INSTALLED_COMPONENTS+=("$package")
+    else
+        FAILED_COMPONENTS+=("$package")
     fi
 done
 log_install_report "System Packages" "SUCCESS" "$VERIFIED_PACKAGES/${#SYSTEM_PACKAGES[@]} packages verified"
 
 # Docker verification
-if command_exists docker && sudo docker run --rm hello-world >/dev/null 2>&1; then
-    if check_service "docker"; then
-        log_install_report "Docker Service" "SUCCESS" "Running and enabled"
+if command_exists docker; then
+    if sudo docker run --rm hello-world >/dev/null 2>&1; then
+        if check_service "docker"; then
+            log_install_report "Docker Service" "SUCCESS" "Running and enabled"
+            INSTALLED_COMPONENTS+=("Docker")
+        else
+            log_install_report "Docker Service" "FAILED" "Not running properly"
+            FAILED_COMPONENTS+=("Docker Service")
+        fi
     else
-        log_install_report "Docker Service" "FAILED" "Not running properly"
+        log_install_report "Docker Functionality" "FAILED" "Docker command works but hello-world test failed"
+        FAILED_COMPONENTS+=("Docker Functionality")
     fi
 else
-    log_install_report "Docker Service" "FAILED" "Not working correctly"
+    log_install_report "Docker Service" "FAILED" "Docker not installed"
+    FAILED_COMPONENTS+=("Docker")
 fi
 
 # Python verification
 if command_exists python3 && command_exists pip3; then
     log_install_report "Python Environment" "SUCCESS" "Python3 and pip3 available"
+    INSTALLED_COMPONENTS+=("Python Environment")
 else
     log_install_report "Python Environment" "FAILED" "Missing Python components"
+    FAILED_COMPONENTS+=("Python Environment")
 fi
 
 # Node.js/Yarn verification
 if command_exists node && command_exists npm; then
     if command_exists yarn; then
         log_install_report "Node.js Environment" "SUCCESS" "Node.js, npm, and yarn available"
+        INSTALLED_COMPONENTS+=("Node.js Environment")
     else
         log_install_report "Node.js Environment" "PARTIAL" "Node.js and npm available, yarn missing"
+        FAILED_COMPONENTS+=("Yarn")
     fi
 else
     log_install_report "Node.js Environment" "FAILED" "Missing Node.js components"
+    FAILED_COMPONENTS+=("Node.js Environment")
 fi
 
 # Repository verification
-if [[ -d "$HOME/rl-swarm" ]] && [[ -f "$HOME/rl-swarm/run_rl_swarm.sh" ]]; then
-    if [[ -f "$HOME/rl-swarm/hivemind_exp/configs/mac/grpo-qwen-2.5-0.5b-deepseek-r1.yaml" ]]; then
+if check_directory "$HOME/rl-swarm" && check_file "$HOME/rl-swarm/run_rl_swarm.sh"; then
+    if check_file "$HOME/rl-swarm/hivemind_exp/configs/mac/grpo-qwen-2.5-0.5b-deepseek-r1.yaml"; then
         log_install_report "Project Structure" "SUCCESS" "All files and configurations in place"
+        INSTALLED_COMPONENTS+=("Project Structure")
     else
         log_install_report "Project Structure" "PARTIAL" "Repository cloned but config missing"
+        FAILED_COMPONENTS+=("Config File")
     fi
 else
     log_install_report "Project Structure" "FAILED" "Repository or scripts missing"
+    FAILED_COMPONENTS+=("Project Structure")
+fi
+
+# UFW verification
+if command_exists ufw; then
+    if sudo ufw status | grep -q "Status: active" 2>/dev/null; then
+        log_install_report "UFW Firewall" "SUCCESS" "Active and configured"
+        INSTALLED_COMPONENTS+=("UFW Firewall")
+    else
+        log_install_report "UFW Firewall" "FAILED" "Installed but not active"
+        FAILED_COMPONENTS+=("UFW Status")
+    fi
+else
+    log_install_report "UFW Firewall" "FAILED" "Not installed"
+    FAILED_COMPONENTS+=("UFW Firewall")
+fi
+
+# Cloudflared verification
+if command_exists cloudflared; then
+    log_install_report "Cloudflared" "SUCCESS" "Installed and available"
+    INSTALLED_COMPONENTS+=("Cloudflared")
+else
+    log_install_report "Cloudflared" "FAILED" "Not installed"
+    FAILED_COMPONENTS+=("Cloudflared")
 fi
 
 # MSMTP verification
-if [[ -f ~/.msmtprc ]]; then
-    if [[ $(stat -c %a ~/.msmtprc) == "600" ]]; then
+if check_file ~/.msmtprc; then
+    if [[ $(stat -c %a ~/.msmtprc 2>/dev/null) == "600" ]]; then
         # Check if it's still the template or has been configured
-        if grep -q "your-email@gmail.com" ~/.msmtprc; then
-            log_install_report "MSMTP Final Check" "PARTIAL" "Template created - needs manual configuration"
+        if grep -q "your-email@gmail.com" ~/.msmtprc 2>/dev/null; then
+            log_install_report "MSMTP Configuration" "PARTIAL" "Template created - needs manual configuration"
+            FAILED_COMPONENTS+=("MSMTP Config")
         else
-            log_install_report "MSMTP Final Check" "SUCCESS" "Configuration file ready with proper permissions"
+            log_install_report "MSMTP Configuration" "SUCCESS" "Configuration file ready with proper permissions"
+            INSTALLED_COMPONENTS+=("MSMTP Configuration")
         fi
     else
-        log_install_report "MSMTP Final Check" "FAILED" "File exists but permissions are incorrect"
+        log_install_report "MSMTP Configuration" "FAILED" "File exists but permissions are incorrect"
+        FAILED_COMPONENTS+=("MSMTP Permissions")
     fi
 else
-    log_install_report "MSMTP Final Check" "SKIP" "No configuration file created"
+    log_install_report "MSMTP Configuration" "SKIP" "No configuration file created"
+fi
+
+# Additional files verification
+if check_directory "$HOME/rl-swarm/gensyn-crash-script"; then
+    log_install_report "Gensyn Crash Script" "SUCCESS" "Directory exists in rl-swarm"
+    INSTALLED_COMPONENTS+=("Gensyn Crash Script")
+fi
+
+if check_directory "$HOME/rl-swarm/swarm-pem-files"; then
+    log_install_report "Swarm PEM Files" "SUCCESS" "Directory exists in rl-swarm"
+    INSTALLED_COMPONENTS+=("Swarm PEM Files")
 fi
 
 # =============================================================================
@@ -536,31 +669,29 @@ echo -e "\n${CYAN}===========================================================${N
 echo -e "${BLUE}                📊 FINAL INSTALLATION REPORT 📊            ${NC}"
 echo -e "${CYAN}===========================================================${NC}"
 
-SETUP_TIME="2025-06-19 12:03:37 UTC"
+# Calculate success percentage
+TOTAL_COMPONENTS=$((${#INSTALLED_COMPONENTS[@]} + ${#FAILED_COMPONENTS[@]}))
+if [ $TOTAL_COMPONENTS -gt 0 ]; then
+    SUCCESS_PERCENTAGE=$(( ${#INSTALLED_COMPONENTS[@]} * 100 / $TOTAL_COMPONENTS ))
+else
+    SUCCESS_PERCENTAGE=0
+fi
+
+SETUP_TIME="2025-06-19 12:42:42 UTC"
 echo -e "\n${BLUE}📅 Setup completed: ${SETUP_TIME}${NC}"
 echo -e "${BLUE}👤 Setup by: arookiecoder-ip${NC}"
+echo -e "${BLUE}📈 Success Rate: ${SUCCESS_PERCENTAGE}% (${#INSTALLED_COMPONENTS[@]}/${TOTAL_COMPONENTS})${NC}"
 
-echo -e "\n${GREEN}✅ CORE COMPONENTS STATUS:${NC}"
-echo -e "   • System Updates & Packages"
-echo -e "   • Docker Installation & Service"
-echo -e "   • Python3 Environment"
-echo -e "   • Node.js & Yarn"
-echo -e "   • Git Repository (rl-swarm)"
-echo -e "   • Firewall Configuration"
-echo -e "   • Cloudflare Tunnel"
-echo -e "   • Configuration Files"
-echo -e "   • Email Tools & MSMTP Setup"
+echo -e "\n${GREEN}✅ SUCCESSFULLY INSTALLED (${#INSTALLED_COMPONENTS[@]})${NC}"
+for component in "${INSTALLED_COMPONENTS[@]}"; do
+    echo -e "   ${GREEN}✓${NC} $component"
+done
 
-echo -e "\n${BLUE}📧 MSMTP Configuration Status:${NC}"
-if [[ -f ~/.msmtprc ]]; then
-    if grep -q "your-email@gmail.com" ~/.msmtprc; then
-        echo -e "   ${YELLOW}⚠️  Template created - requires manual editing${NC}"
-        echo -e "   ${CYAN}Edit with: nano ~/.msmtprc${NC}"
-    else
-        echo -e "   ${GREEN}✅ Configuration file appears to be customized${NC}"
-    fi
-else
-    echo -e "   ${RED}❌ No configuration file found${NC}"
+if [ ${#FAILED_COMPONENTS[@]} -gt 0 ]; then
+    echo -e "\n${RED}❌ FAILED OR MISSING (${#FAILED_COMPONENTS[@]})${NC}"
+    for component in "${FAILED_COMPONENTS[@]}"; do
+        echo -e "   ${RED}✗${NC} $component"
+    done
 fi
 
 echo -e "\n${BLUE}🎯 READY TO USE:${NC}"
@@ -569,7 +700,7 @@ echo -e "   ${CYAN}./run_rl_swarm.sh${NC}"
 
 echo -e "\n${YELLOW}⚠️  IMPORTANT NEXT STEPS:${NC}"
 echo -e "   1. Logout and login (or run: ${CYAN}newgrp docker${NC})"
-if [[ -f ~/.msmtprc ]] && grep -q "your-email@gmail.com" ~/.msmtprc; then
+if check_file ~/.msmtprc && grep -q "your-email@gmail.com" ~/.msmtprc 2>/dev/null; then
     echo -e "   2. ${YELLOW}REQUIRED:${NC} Edit ~/.msmtprc with your email settings"
 fi
 echo -e "   3. Test Docker: ${CYAN}docker run hello-world${NC}"
@@ -582,24 +713,37 @@ REPORT_FILE="$HOME/gensyn_setup_report_$(date +%Y%m%d_%H%M%S).txt"
     echo "========================"
     echo "Date: $SETUP_TIME"
     echo "User: arookiecoder-ip"
+    echo "Success Rate: ${SUCCESS_PERCENTAGE}%"
     echo ""
-    echo "Setup completed with installation reports only."
-    echo "All components have been processed and verified."
+    echo "Successfully Installed (${#INSTALLED_COMPONENTS[@]}):"
+    for component in "${INSTALLED_COMPONENTS[@]}"; do
+        echo "  ✓ $component"
+    done
     echo ""
-    if [[ -f ~/.msmtprc ]]; then
-        echo "MSMTP Configuration: Created"
-        if grep -q "your-email@gmail.com" ~/.msmtprc; then
-            echo "  Status: Template - requires manual editing"
-        else
-            echo "  Status: Appears configured"
-        fi
-    else
-        echo "MSMTP Configuration: Skipped"
+    if [ ${#FAILED_COMPONENTS[@]} -gt 0 ]; then
+        echo "Failed Components (${#FAILED_COMPONENTS[@]}):"
+        for component in "${FAILED_COMPONENTS[@]}"; do
+            echo "  ✗ $component"
+        done
+        echo ""
+    fi
+    echo "Files and Directories:"
+    if check_directory "$HOME/rl-swarm"; then
+        echo "  ✓ ~/rl-swarm/ directory exists"
+    fi
+    if check_file ~/.msmtprc; then
+        echo "  ✓ ~/.msmtprc configuration exists"
+    fi
+    if check_directory "$HOME/rl-swarm"; then
+        echo "  ✓ ~/rl-swarm/ exists"
+    fi
+    if check_directory "$HOME/rl-swarm"; then
+        echo "  ✓ ~/rl-swarm exists"
     fi
     echo ""
     echo "Next Steps:"
     echo "1. Logout and login again for Docker group permissions"
-    if [[ -f ~/.msmtprc ]] && grep -q "your-email@gmail.com" ~/.msmtprc; then
+    if check_file ~/.msmtprc && grep -q "your-email@gmail.com" ~/.msmtprc 2>/dev/null; then
         echo "2. IMPORTANT: Configure ~/.msmtprc with your email settings"
     fi
     echo "3. Navigate to ~/rl-swarm and run ./run_rl_swarm.sh"
@@ -611,4 +755,10 @@ echo -e "\n${CYAN}===========================================================${N
 echo -e "${GREEN}                    🔔 SETUP COMPLETE! 🔔                  ${NC}"
 echo -e "${CYAN}===========================================================${NC}"
 
-echo -e "\n${GREEN}🚀 Your Gensyn Node is ready! All installations completed with detailed reports.${NC}"
+if [ ${#FAILED_COMPONENTS[@]} -eq 0 ]; then
+    echo -e "\n${GREEN}🎉 Perfect! All components installed successfully!${NC}"
+else
+    echo -e "\n${YELLOW}⚠️  Setup completed with ${#FAILED_COMPONENTS[@]} issues. Please review and fix the failed components.${NC}"
+fi
+
+echo -e "\n${GREEN}🚀 Your Gensyn Node setup is complete!${NC}"
