@@ -598,10 +598,18 @@ echo -e "\n${CYAN}[11/12] Additional Files Setup${NC}"
 # 1. MSMTP Configuration (Main Directory) - handled in previous step
 echo -e "MSMTP configuration handled in previous step."
 
-# 2. Gensyn Crash Script (rl-swarm directory) - Always ask and update
+# 2. Gensyn Crash Script (rl-swarm directory)
+# Ask for Crash Script URL if not already set
+if [[ -z "$CRASH_SCRIPT_URL" ]]; then
+  read -p "Enter Gensyn crash script repository URL or Gist URL (or press Enter to skip): " CRASH_SCRIPT_URL
+  if [[ -z "$CRASH_SCRIPT_URL" ]]; then
+    log_install_report "Gensyn Crash Script" "SKIP" "No URL provided"
+  fi
+fi
+
 if [[ -n "$CRASH_SCRIPT_URL" ]]; then
     mkdir -p ~/rl-swarm 2>/dev/null || true
-
+    
     # Use temporary directory to avoid conflicts
     temp_crash_dir=$(mktemp -d)
     if clone_repository "$CRASH_SCRIPT_URL" "$temp_crash_dir"; then
@@ -611,28 +619,21 @@ if [[ -n "$CRASH_SCRIPT_URL" ]]; then
         # Check for any .sh files and make them executable
         if find ~/rl-swarm/ -maxdepth 1 -type f -name "*.sh" | grep -q .; then
             find ~/rl-swarm/ -maxdepth 1 -type f -name "*.sh" -exec chmod +x {} \;
-            log_install_report "Gensyn Crash Script" "✅SUCCESS" "Downloaded and script(s) made executable"
+            log_install_report "Gensyn Crash Script" "SUCCESS" "Downloaded and script(s) made executable"
         else
-            log_install_report "Gensyn Crash Script" "✅SUCCESS" "Downloaded (no .sh files to make executable)"
+            log_install_report "Gensyn Crash Script" "SUCCESS" "Downloaded (no .sh files to make executable)"
         fi
     else
         rm -rf "$temp_crash_dir" 2>/dev/null || true
-        log_install_report "Gensyn Crash Script" "🛑FAILED" "Failed to clone crash script repository"
+        log_install_report "Gensyn Crash Script" "FAILED" "Failed to clone crash script repository"
     fi
 else
-    log_install_report "Gensyn Crash Script" "⚠️SKIP" "No URL provided"
+    log_install_report "Gensyn Crash Script" "SKIP" "No URL provided"
 fi
 
-
-# 3. Swarm PEM File (rl-swarm directory) - Always ask and update
-while [[ -z "$CRASH_SCRIPT_URL" ]]; do
-  read -p "Enter Gensyn crash script repository URL or Gist URL (or press Enter to skip): " CRASH_SCRIPT_URL
-  if [[ -z "$CRASH_SCRIPT_URL" ]]; then
-    echo -e "${YELLOW}⚠️  No URL provided, skipping...${NC}"
-    break
-  fi
-done
-read CRASH_SCRIPT_URL
+# 3. Swarm PEM File (rl-swarm directory)
+# Ask for PEM File URL separately
+read -p "Enter Swarm PEM file repository URL or Gist URL (or press Enter to skip): " PEM_FILE_URL
     if [[ -n "$PEM_FILE_URL" ]]; then
     mkdir -p ~/rl-swarm 2>/dev/null || true
     
