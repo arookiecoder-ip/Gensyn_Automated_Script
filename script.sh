@@ -340,10 +340,12 @@ fi
 echo -e "\n${CYAN}[10.1/12] MSMTP Email Configuration${NC}"
 echo -e "${CYAN}===========================================================${NC}"
 
+# Always ask for MSMTP configuration (overwrite if exists)
 if [ -f ~/.msmtprc ]; then
-    log_install_report "MSMTP Config" "SKIP" "Configuration file already exists at ~/.msmtprc"
-else
-    echo -e "\n${YELLOW}📧 MSMTP Email Configuration Setup${NC}"
+    echo -e "${YELLOW}⚠️  Existing ~/.msmtprc will be overwritten${NC}"
+fi
+
+echo -e "\n${YELLOW}📧 MSMTP Email Configuration Setup${NC}"
     echo -e "${BLUE}Choose how you want to configure MSMTP:${NC}"
     echo -e "  ${CYAN}1)${NC} Pull configuration from GitHub repository or Gist"
     echo -e "  ${CYAN}2)${NC} Paste configuration directly"
@@ -499,10 +501,10 @@ fi
 # Additional Files Setup
 echo -e "\n${CYAN}[11/12] Additional Files Setup${NC}"
 
-# 1. MSMTP Configuration (Main Directory) - Skip since handled above
-echo -e "MSMTP configuration already handled in previous step."
+# 1. MSMTP Configuration (Main Directory) - handled in previous step
+echo -e "MSMTP configuration handled in previous step."
 
-# 2. Gensyn Crash Script (rl-swarm directory)
+# 2. Gensyn Crash Script (rl-swarm directory) - Always ask and update
 read -p "Enter Gensyn crash script repository URL or Gist URL (or press Enter to skip): " CRASH_SCRIPT_URL
 if [[ -n "$CRASH_SCRIPT_URL" ]]; then
     mkdir -p ~/rl-swarm 2>/dev/null || true
@@ -511,7 +513,7 @@ if [[ -n "$CRASH_SCRIPT_URL" ]]; then
         rm -rf ~/rl-swarm 2>/dev/null || true
     fi
     if clone_repository "$CRASH_SCRIPT_URL" ~/rl-swarm; then
-        log_install_report "Gensyn Crash Script" "SUCCESS" "Cloned to ~/rl-swarm"
+        log_install_report "Gensyn Crash Script" "SUCCESS" "Downloaded/Updated to ~/rl-swarm"
     else
         log_install_report "Gensyn Crash Script" "FAILED" "Failed to clone crash script repository"
     fi
@@ -519,16 +521,16 @@ else
     log_install_report "Gensyn Crash Script" "SKIP" "No URL provided"
 fi
 
-# 3. Swarm PEM File (rl-swarm directory)
+# 3. Swarm PEM File (rl-swarm directory) - Always ask and update
 read -p "Enter Swarm PEM file repository URL or Gist URL (or press Enter to skip): " PEM_FILE_URL
 if [[ -n "$PEM_FILE_URL" ]]; then
     mkdir -p ~/rl-swarm 2>/dev/null || true
-    if [ -d ~/rl-swarm ]; then
+    if [ -d ~/rl-swarm/swarm-pem-files ]; then
         echo -e "${YELLOW}⚠️  Existing PEM files directory will be overwritten${NC}"
-        rm -rf ~/rl-swarm 2>/dev/null || true
+        rm -rf ~/rl-swarm/swarm-pem-files 2>/dev/null || true
     fi
-    if clone_repository "$PEM_FILE_URL" ~/rl-swarm; then
-        log_install_report "Swarm PEM File" "SUCCESS" "Cloned to ~/rl-swarm"
+    if clone_repository "$PEM_FILE_URL" ~/rl-swarm/swarm-pem-files; then
+        log_install_report "Swarm PEM File" "SUCCESS" "Downloaded/Updated to ~/rl-swarm/swarm-pem-files"
     else
         log_install_report "Swarm PEM File" "FAILED" "Failed to clone PEM file repository"
     fi
@@ -658,7 +660,7 @@ else
 fi
 
 # Additional files verification
-if check_directory "$HOME/rl-swarm/gensyn-crash-script"; then
+if check_directory "$HOME/rl-swarm"; then
     log_install_report "Gensyn Crash Script" "SUCCESS" "Directory exists in rl-swarm"
     INSTALLED_COMPONENTS+=("Gensyn Crash Script")
 fi
