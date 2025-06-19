@@ -788,6 +788,8 @@ else
     log_install_report "Gensyn Crash Script Files" "SKIP" "No crash script files detected"
 fi
 
+chmod +x ~/rl-swarm/run_rl_swarm.sh
+
 # Additional files verification - Check for PEM files
 pem_files_found=false
 if check_directory "$HOME/rl-swarm"; then
