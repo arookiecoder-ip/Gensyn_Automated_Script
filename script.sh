@@ -496,7 +496,6 @@ EOF
                 ;;
         esac
     done
-fi
 
 # Additional Files Setup
 echo -e "\n${CYAN}[11/12] Additional Files Setup${NC}"
