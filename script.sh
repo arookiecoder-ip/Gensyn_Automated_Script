@@ -1,42 +1,219 @@
 #!/bin/bash
 
-# Gensyn Installation Script
-# Description: Complete installation script for Gensyn mining node setup
-# Author: Auto-generated installation script
-# Current Date and Time (UTC - YYYY-MM-DD HH:MM:SS formatted): 2025-06-19 13:33:25
-# Current User's Login: arookiecoder-ip
-
 set -e  # Exit on any error
 
-# Color codes for output
+# Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-PURPLE='\033[0;35m'
-CYAN='\033[0;36m'
-WHITE='\033[1;37m'
+BLUE='\033[1;34m'
+CYAN='\033[1;36m'
 NC='\033[0m' # No Color
 
-# Installation report arrays
-declare -a INSTALL_REPORTS=()
+# Headline
+echo -e "\n${CYAN}===========================================================${NC}"
+echo -e "${GREEN}                  🚀 GENSYN NODE SETUP 🚀                   ${NC}"
+echo -e "${CYAN}===========================================================${NC}"
+echo ""
 
-# Function to log installation results
-log_install_report() {
-    local component="$1"
-    local status="$2"
-    local details="$3"
-    local timestamp=$(date '+%Y-%m-%d %H:%M:%S UTC')
-    
-    INSTALL_REPORTS+=("$timestamp | $component | $status | $details")
-}
+# Ask for confirmation to continue
+read -p "Do you want to start setting up the Gensyn Node? (y/n): " confirm
+if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+    echo -e "\n❌ Setup aborted by user. Exiting..."
+    exit 1
+fi
 
-# Function to check if a command exists
+# Function to check if command exists
 command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
-# Function to check if a service is running
+# Function to log installation report
+log_install_report() {
+    local component="$1"
+    local status="$2"
+    local details="$3"
+    
+    if [[ "$status" == "SUCCESS" ]]; then
+        echo -e "${GREEN}✅ $component${NC} - $details"
+    elif [[ "$status" == "SKIP" ]]; then
+        echo -e "${YELLOW}⏭️  $component${NC} - $details"
+    else
+        echo -e "${RED}❌ $component${NC} - $details"
+    fi
+}
+
+# Function to clone gist or regular git repository
+clone_repository() {
+    local url="$1"
+    local destination="$2"
+    local temp_dir=$(mktemp -d)
+    
+    # Check if it's a gist URL
+    if [[ "$url" == *"gist.github.com"* ]]; then
+        # For gists, we need to append .git to clone
+        local git_url="$url"
+        if [[ ! "$git_url" == *".git" ]]; then
+            git_url="${git_url}.git"
+        fi
+        
+        # Try to clone the gist
+        if git clone "$git_url" "$temp_dir" >/dev/null 2>&1; then
+            if [[ -n "$destination" ]]; then
+                # Create destination directory if it doesn't exist
+                mkdir -p "$destination" 2>/dev/null || true
+                
+                # Copy files from temp directory to destination
+                if cp -r "$temp_dir"/* "$destination/" 2>/dev/null; then
+                    rm -rf "$temp_dir" 2>/dev/null || true
+                    return 0
+                else
+                    # If copy fails, try move
+                    if mv "$temp_dir" "$destination" 2>/dev/null; then
+                        return 0
+                    fi
+                fi
+            else
+                # If no destination specified, just verify the clone worked
+                rm -rf "$temp_dir" 2>/dev/null || true
+                return 0
+            fi
+        fi
+        
+        # Cleanup on failure
+        rm -rf "$temp_dir" 2>/dev/null || true
+        return 1
+    else
+        # Regular git repository
+        if [[ -n "$destination" ]]; then
+            if git clone "$url" "$destination" >/dev/null 2>&1; then
+                return 0
+            fi
+        else
+            if git clone "$url" "$temp_dir" >/dev/null 2>&1; then
+                rm -rf "$temp_dir" 2>/dev/null || true
+                return 0
+            fi
+        fi
+        return 1
+    fi
+}
+
+# Function to download single file from gist
+download_gist_file() {
+    local gist_url="$1"
+    local destination="$2"
+    
+    # Check if it's a gist URL
+    if [[ "$gist_url" == *"gist.github.com"* ]]; then
+        # Extract username and gist ID from different gist URL formats
+        # Format 1: https://gist.github.com/username/gist_id
+        # Format 2: https://gist.github.com/gist_id
+        
+        local username=""
+        local gist_id=""
+        
+        # Remove protocol and domain
+        local path_part=$(echo "$gist_url" | sed 's|https://gist.github.com/||' | sed 's|http://gist.github.com/||')
+        
+        # Split by forward slash
+        IFS='/' read -ra URL_PARTS <<< "$path_part"
+        
+        if [ ${#URL_PARTS[@]} -eq 2 ]; then
+            # Format: username/gist_id
+            username="${URL_PARTS[0]}"
+            gist_id="${URL_PARTS[1]}"
+        elif [ ${#URL_PARTS[@]} -eq 1 ]; then
+            # Format: gist_id only
+            gist_id="${URL_PARTS[0]}"
+            # Try to extract username from the original URL or use a default
+            username=$(echo "$gist_url" | grep -o '/[^/]*/' | sed 's|/||g' | head -n1)
+            if [[ -z "$username" ]]; then
+                username="anonymous"
+            fi
+        else
+            echo "Invalid gist URL format"
+            return 1
+        fi
+        
+        # Clean gist_id (remove any trailing parameters)
+        gist_id=$(echo "$gist_id" | sed 's/[?#].*//')
+        
+        # Try multiple methods to download the gist
+        local success=false
+        
+        # Method 1: Try with username
+        if [[ -n "$username" && "$username" != "anonymous" ]]; then
+            local raw_url="https://gist.githubusercontent.com/$username/$gist_id/raw/"
+            if curl -s -f "$raw_url" -o "$destination" 2>/dev/null; then
+                success=true
+            fi
+        fi
+        
+        # Method 2: Try without username (for anonymous gists)
+        if [[ "$success" == "false" ]]; then
+            local raw_url="https://gist.githubusercontent.com/$gist_id/raw/"
+            if curl -s -f "$raw_url" -o "$destination" 2>/dev/null; then
+                success=true
+            fi
+        fi
+        
+        # Method 3: Try to get the raw URL by scraping the gist page
+        if [[ "$success" == "false" ]]; then
+            local raw_url=$(curl -s "$gist_url" | grep -o 'https://gist.githubusercontent.com/[^"]*' | head -n1)
+            if [[ -n "$raw_url" ]]; then
+                if curl -s -f "$raw_url" -o "$destination" 2>/dev/null; then
+                    success=true
+                fi
+            fi
+        fi
+        
+        # Method 4: Use GitHub API to get the raw content
+        if [[ "$success" == "false" ]]; then
+            local api_url="https://api.github.com/gists/$gist_id"
+            local raw_content=$(curl -s "$api_url" | grep -o '"raw_url":"[^"]*' | head -n1 | sed 's/"raw_url":"//')
+            if [[ -n "$raw_content" ]]; then
+                if curl -s -f "$raw_content" -o "$destination" 2>/dev/null; then
+                    success=true
+                fi
+            fi
+        fi
+        
+        if [[ "$success" == "true" ]]; then
+            return 0
+        else
+            return 1
+        fi
+    fi
+    return 1
+}
+
+# Function to verify installation
+verify_installation() {
+    local component="$1"
+    local command_to_check="$2"
+    local additional_check="$3"
+    
+    if command_exists "$command_to_check"; then
+        if [[ -n "$additional_check" ]]; then
+            if eval "$additional_check" >/dev/null 2>&1; then
+                INSTALLED_COMPONENTS+=("$component")
+                return 0
+            else
+                FAILED_COMPONENTS+=("$component")
+                return 1
+            fi
+        else
+            INSTALLED_COMPONENTS+=("$component")
+            return 0
+        fi
+    else
+        FAILED_COMPONENTS+=("$component")
+        return 1
+    fi
+}
+
+# Function to check service status
 check_service() {
     local service_name="$1"
     if systemctl is-active --quiet "$service_name" && systemctl is-enabled --quiet "$service_name"; then
@@ -46,337 +223,315 @@ check_service() {
     fi
 }
 
-# Function to check if a directory exists
-check_directory() {
-    [[ -d "$1" ]]
-}
-
-# Function to check if a file exists
+# Function to check file exists
 check_file() {
-    [[ -f "$1" ]]
-}
-
-# Function to clone repository with gist support
-clone_repository() {
-    local url="$1"
-    local destination="$2"
-    local temp_dir=$(mktemp -d)
-    
-    if [[ "$url" == *"gist.github.com"* ]]; then
-        # Auto-add .git if not already present
-        if [[ "$url" != *".git" ]]; then
-            url="${url}.git"
-            echo -e "${YELLOW}🔍 Auto-detected Gist URL, added .git extension${NC}"
-        fi
-        
-        if git clone "$url" "$temp_dir" >/dev/null 2>&1; then
-            if [[ -n "$destination" ]]; then
-                # Ensure destination exists
-                mkdir -p "$destination" 2>/dev/null || true
-                # Copy contents, not move directory
-                if cp -r "$temp_dir"/* "$destination/" 2>/dev/null; then
-                    rm -rf "$temp_dir" 2>/dev/null || true
-                    return 0
-                else
-                    echo -e "${RED}❌ Failed to copy files to destination${NC}"
-                    rm -rf "$temp_dir" 2>/dev/null || true
-                    return 1
-                fi
-            fi
-            rm -rf "$temp_dir" 2>/dev/null || true
-            return 0
-        else
-            echo -e "${RED}❌ Failed to clone Gist repository${NC}"
-            rm -rf "$temp_dir" 2>/dev/null || true
-            return 1
-        fi
+    local file_path="$1"
+    if [[ -f "$file_path" ]]; then
+        return 0
     else
-        if git clone "$url" "$temp_dir" >/dev/null 2>&1; then
-            if [[ -n "$destination" ]]; then
-                mkdir -p "$destination" 2>/dev/null || true
-                if cp -r "$temp_dir"/* "$destination/" 2>/dev/null; then
-                    rm -rf "$temp_dir" 2>/dev/null || true
-                    return 0
-                else
-                    echo -e "${RED}❌ Failed to copy files to destination${NC}"
-                    rm -rf "$temp_dir" 2>/dev/null || true
-                    return 1
-                fi
-            fi
-            rm -rf "$temp_dir" 2>/dev/null || true
-            return 0
-        else
-            echo -e "${RED}❌ Failed to clone repository${NC}"
-            rm -rf "$temp_dir" 2>/dev/null || true
-            return 1
-        fi
+        return 1
     fi
 }
 
-# Function to display header
-display_header() {
-    clear
-    echo -e "${PURPLE}============================================================${NC}"
-    echo -e "${WHITE}              GENSYN MINING NODE SETUP${NC}"
-    echo -e "${PURPLE}============================================================${NC}"
-    echo -e "${CYAN}Automated installation script for Gensyn mining node${NC}"
-    echo -e "${YELLOW}This script will install and configure all required components${NC}"
-    echo -e "${PURPLE}============================================================${NC}\n"
+# Function to check directory exists
+check_directory() {
+    local dir_path="$1"
+    if [[ -d "$dir_path" ]]; then
+        return 0
+    else
+        return 1
+    fi
 }
 
-# Function to check system requirements
-check_system_requirements() {
-    echo -e "${CYAN}Checking system requirements...${NC}"
-    
-    # Check if running as root
-    if [[ $EUID -eq 0 ]]; then
-        echo -e "${RED}❌ This script should not be run as root. Please run as a regular user with sudo privileges.${NC}"
-        exit 1
-    fi
-    
-    # Check if sudo is available
-    if ! command_exists sudo; then
-        echo -e "${RED}❌ sudo is required but not installed. Please install sudo first.${NC}"
-        exit 1
-    fi
-    
-    # Check sudo privileges
-    if ! sudo -n true 2>/dev/null; then
-        echo -e "${YELLOW}⚠️  This script requires sudo privileges. You may be prompted for your password.${NC}"
-        sudo -v
-    fi
-    
-    echo -e "${GREEN}✅ System requirements check passed${NC}\n"
-}
+# Arrays to track installation status
+declare -a INSTALLED_COMPONENTS=()
+declare -a FAILED_COMPONENTS=()
 
-# Start installation
-display_header
-check_system_requirements
+echo -e "\n${BLUE}📦 INSTALLATION PROGRESS REPORTS${NC}"
+echo -e "${CYAN}===========================================================${NC}"
 
-echo -e "${CYAN}[1/12] System Update${NC}"
-echo "==========================================================="
-echo -e "${YELLOW}Updating package lists and upgrading system packages...${NC}"
-sudo apt update && sudo apt upgrade -y
-log_install_report "System Update" "SUCCESS" "Package lists updated and system upgraded"
-echo -e "${GREEN}✅ System update completed${NC}\n"
+# System Update
+echo -e "\n${CYAN}[1/12] System Update & Essential Packages${NC}"
+if sudo apt-get update >/dev/null 2>&1 && sudo apt-get upgrade -y >/dev/null 2>&1; then
+    log_install_report "System Update" "SUCCESS" "System updated successfully"
+else
+    log_install_report "System Update" "FAILED" "Failed to update system"
+fi
 
-echo -e "${CYAN}[2/12] Essential Packages Installation${NC}"
-echo "==========================================================="
-echo -e "${YELLOW}Installing essential packages (curl, wget, git, unzip, software-properties-common)...${NC}"
-sudo apt install -y curl wget git unzip software-properties-common build-essential
-log_install_report "Essential Packages" "SUCCESS" "curl, wget, git, unzip, software-properties-common, build-essential installed"
-echo -e "${GREEN}✅ Essential packages installed${NC}\n"
+if sudo apt install screen curl iptables build-essential git wget lz4 jq make gcc nano automake autoconf tmux htop nvme-cli libgbm1 pkg-config libssl-dev libleveldb-dev tar clang bsdmainutils ncdu unzip -y >/dev/null 2>&1; then
+    log_install_report "Essential Packages" "SUCCESS" "All essential packages installed"
+else
+    log_install_report "Essential Packages" "FAILED" "Some essential packages failed to install"
+fi
 
-echo -e "${CYAN}[3/12] Docker Installation${NC}"
-echo "==========================================================="
+# Docker Installation
+echo -e "\n${CYAN}[2/12] Docker Installation${NC}"
 if command_exists docker; then
-    echo -e "${GREEN}Docker is already installed${NC}"
-    docker --version
-    log_install_report "Docker" "ALREADY_INSTALLED" "Docker was already present on the system"
+    log_install_report "Docker" "SKIP" "Already installed - $(docker --version 2>/dev/null || echo 'version unknown')"
 else
-    echo -e "${YELLOW}Installing Docker...${NC}"
-    # Add Docker's official GPG key
-    sudo apt-get update
-    sudo apt-get install -y ca-certificates curl
-    sudo install -m 0755 -d /etc/apt/keyrings
-    sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-    sudo chmod a+r /etc/apt/keyrings/docker.asc
-    
-    # Add the repository to Apt sources
-    echo \
-      "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
-      $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
-      sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-    sudo apt-get update
-    
-    # Install Docker Engine
-    sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-    
-    # Add user to docker group
-    sudo usermod -aG docker $USER
-    log_install_report "Docker" "SUCCESS" "Docker installed and user added to docker group"
-    echo -e "${GREEN}✅ Docker installed successfully${NC}"
-    echo -e "${YELLOW}⚠️  Please log out and log back in for docker group changes to take effect${NC}"
-fi
-echo ""
+    # Remove old Docker versions silently
+    for pkg in docker.io docker-doc docker-compose podman-docker containerd runc; do 
+        sudo apt-get remove -y $pkg >/dev/null 2>&1 || true
+    done
 
-echo -e "${CYAN}[4/12] Docker Compose Installation${NC}"
-echo "==========================================================="
-if command_exists docker-compose || docker compose version >/dev/null 2>&1; then
-    echo -e "${GREEN}Docker Compose is already available${NC}"
-    if command_exists docker-compose; then
-        docker-compose --version
+    # Primary installation method
+    if sudo apt install apt-transport-https ca-certificates curl software-properties-common -y >/dev/null 2>&1 && \
+       curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg >/dev/null 2>&1 && \
+       echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null && \
+       sudo apt update >/dev/null 2>&1 && \
+       sudo apt install docker-ce docker-ce-cli containerd.io -y >/dev/null 2>&1; then
+        
+        sudo systemctl enable docker >/dev/null 2>&1
+        sudo systemctl start docker >/dev/null 2>&1
+        sudo usermod -aG docker $USER >/dev/null 2>&1
+        
+        if sudo docker run hello-world >/dev/null 2>&1; then
+            DOCKER_VERSION=$(docker --version 2>/dev/null || echo "version unknown")
+            log_install_report "Docker" "SUCCESS" "$DOCKER_VERSION - Service running"
+        else
+            log_install_report "Docker" "FAILED" "Installed but functionality test failed"
+        fi
     else
-        docker compose version
+        # Fallback installation
+        if sudo apt remove -y docker docker-engine docker.io containerd runc >/dev/null 2>&1 && \
+           sudo mkdir -p /etc/apt/keyrings >/dev/null 2>&1 && \
+           curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg >/dev/null 2>&1 && \
+           echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null && \
+           sudo apt update >/dev/null 2>&1 && \
+           sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin >/dev/null 2>&1; then
+            
+            sudo systemctl enable docker >/dev/null 2>&1
+            sudo systemctl start docker >/dev/null 2>&1
+            sudo usermod -aG docker $USER >/dev/null 2>&1
+            
+            if sudo docker run hello-world >/dev/null 2>&1; then
+                DOCKER_VERSION=$(docker --version 2>/dev/null || echo "version unknown")
+                log_install_report "Docker (Fallback)" "SUCCESS" "$DOCKER_VERSION - Service running"
+            else
+                log_install_report "Docker (Fallback)" "FAILED" "Installed but functionality test failed"
+            fi
+        else
+            log_install_report "Docker" "FAILED" "Both primary and fallback installation methods failed"
+        fi
     fi
-    log_install_report "Docker Compose" "ALREADY_INSTALLED" "Docker Compose was already available"
-else
-    echo -e "${YELLOW}Installing Docker Compose...${NC}"
-    # Docker Compose is now included with Docker installation as a plugin
-    # But let's install the standalone version as well for compatibility
-    sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-    sudo chmod +x /usr/local/bin/docker-compose
-    log_install_report "Docker Compose" "SUCCESS" "Docker Compose standalone version installed"
-    echo -e "${GREEN}✅ Docker Compose installed successfully${NC}"
-fi
-echo ""
-
-echo -e "${CYAN}[5/12] Python 3 and pip Installation${NC}"
-echo "==========================================================="
-if command_exists python3; then
-    echo -e "${GREEN}Python 3 is already installed${NC}"
-    python3 --version
-    log_install_report "Python 3" "ALREADY_INSTALLED" "Python 3 was already present"
-else
-    echo -e "${YELLOW}Installing Python 3...${NC}"
-    sudo apt install -y python3 python3-pip python3-venv python3-dev
-    log_install_report "Python 3" "SUCCESS" "Python 3 and related packages installed"
-    echo -e "${GREEN}✅ Python 3 installed successfully${NC}"
 fi
 
-if command_exists pip3; then
-    echo -e "${GREEN}pip3 is already installed${NC}"
-    pip3 --version
-    log_install_report "pip3" "ALREADY_INSTALLED" "pip3 was already present"
+# Python Installation
+echo -e "\n${CYAN}[3/12] Python Installation${NC}"
+if sudo apt-get install python3 python3-pip python3-venv python3-dev -y >/dev/null 2>&1; then
+    PYTHON_VERSION=$(python3 --version 2>/dev/null || echo "version unknown")
+    PIP_VERSION=$(pip3 --version 2>/dev/null || echo "version unknown")
+    log_install_report "Python3" "SUCCESS" "$PYTHON_VERSION"
+    log_install_report "pip3" "SUCCESS" "$PIP_VERSION"
 else
-    echo -e "${YELLOW}Installing pip3...${NC}"
-    sudo apt install -y python3-pip
-    log_install_report "pip3" "SUCCESS" "pip3 installed"
-    echo -e "${GREEN}✅ pip3 installed successfully${NC}"
+    log_install_report "Python3" "FAILED" "Failed to install Python packages"
 fi
-echo ""
 
-echo -e "${CYAN}[6/12] Node.js and npm Installation${NC}"
-echo "==========================================================="
+# Node.js Installation
+echo -e "\n${CYAN}[4/12] Node.js Installation${NC}"
 if command_exists node; then
-    echo -e "${GREEN}Node.js is already installed${NC}"
-    node --version
-    log_install_report "Node.js" "ALREADY_INSTALLED" "Node.js was already present"
+    NODE_VERSION=$(node --version 2>/dev/null || echo "version unknown")
+    log_install_report "Node.js" "SKIP" "Already installed - $NODE_VERSION"
 else
-    echo -e "${YELLOW}Installing Node.js and npm...${NC}"
-    # Install Node.js LTS via NodeSource repository
-    curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
-    sudo apt-get install -y nodejs
-    log_install_report "Node.js" "SUCCESS" "Node.js and npm installed via NodeSource"
-    echo -e "${GREEN}✅ Node.js installed successfully${NC}"
-fi
-
-if command_exists npm; then
-    echo -e "${GREEN}npm is already installed${NC}"
-    npm --version
-    log_install_report "npm" "ALREADY_INSTALLED" "npm was already present"
-else
-    echo -e "${YELLOW}npm should have been installed with Node.js${NC}"
-    log_install_report "npm" "WARNING" "npm not found after Node.js installation"
-fi
-echo ""
-
-echo -e "${CYAN}[7/12] Go Programming Language Installation${NC}"
-echo "==========================================================="
-if command_exists go; then
-    echo -e "${GREEN}Go is already installed${NC}"
-    go version
-    log_install_report "Go" "ALREADY_INSTALLED" "Go was already present"
-else
-    echo -e "${YELLOW}Installing Go...${NC}"
-    # Get the latest Go version
-    GO_VERSION=$(curl -s https://api.github.com/repos/golang/go/releases/latest | grep -oP '"tag_name": "\K(.*)(?=")')
-    GO_VERSION=${GO_VERSION#go}
-    
-    # Download and install Go
-    wget https://golang.org/dl/go${GO_VERSION}.linux-amd64.tar.gz
-    sudo rm -rf /usr/local/go
-    sudo tar -C /usr/local -xzf go${GO_VERSION}.linux-amd64.tar.gz
-    rm go${GO_VERSION}.linux-amd64.tar.gz
-    
-    # Add Go to PATH
-    echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
-    echo 'export GOPATH=$HOME/go' >> ~/.bashrc
-    echo 'export PATH=$PATH:$GOPATH/bin' >> ~/.bashrc
-    
-    # Source bashrc to make Go available immediately
-    export PATH=$PATH:/usr/local/go/bin
-    export GOPATH=$HOME/go
-    export PATH=$PATH:$GOPATH/bin
-    
-    log_install_report "Go" "SUCCESS" "Go ${GO_VERSION} installed and PATH configured"
-    echo -e "${GREEN}✅ Go installed successfully${NC}"
-fi
-echo ""
-
-echo -e "${CYAN}[8/12] NVIDIA Docker Setup${NC}"
-echo "==========================================================="
-echo -e "${YELLOW}Setting up NVIDIA Container Toolkit for GPU support...${NC}"
-
-# Check if NVIDIA GPU is present
-if lspci | grep -i nvidia >/dev/null 2>&1; then
-    echo -e "${GREEN}NVIDIA GPU detected${NC}"
-    
-    # Install NVIDIA drivers if not present
-    if ! command_exists nvidia-smi; then
-        echo -e "${YELLOW}Installing NVIDIA drivers...${NC}"
-        sudo apt install -y nvidia-driver-535 nvidia-utils-535
-        echo -e "${YELLOW}⚠️  NVIDIA drivers installed. A reboot may be required.${NC}"
+    if curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - >/dev/null 2>&1 && \
+       sudo apt-get install -y nodejs >/dev/null 2>&1; then
+        NODE_VERSION=$(node --version 2>/dev/null || echo "version unknown")
+        log_install_report "Node.js" "SUCCESS" "$NODE_VERSION"
     else
-        echo -e "${GREEN}NVIDIA drivers already installed${NC}"
-        nvidia-smi --query-gpu=name --format=csv,noheader
+        log_install_report "Node.js" "FAILED" "Failed to install Node.js"
     fi
-    
-    # Install NVIDIA Container Toolkit
-    if ! command_exists nvidia-ctk; then
-        echo -e "${YELLOW}Installing NVIDIA Container Toolkit...${NC}"
-        distribution=$(. /etc/os-release;echo $ID$VERSION_ID) \
-            && curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg \
-            && curl -s -L https://nvidia.github.io/libnvidia-container/$distribution/libnvidia-container.list | \
-                sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
-                sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
-        
-        sudo apt-get update
-        sudo apt-get install -y nvidia-container-toolkit
-        
-        # Configure Docker to use NVIDIA runtime
-        sudo nvidia-ctk runtime configure --runtime=docker
-        sudo systemctl restart docker
-        
-        log_install_report "NVIDIA Docker" "SUCCESS" "NVIDIA Container Toolkit installed and configured"
-        echo -e "${GREEN}✅ NVIDIA Container Toolkit installed${NC}"
-    else
-        echo -e "${GREEN}NVIDIA Container Toolkit already installed${NC}"
-        log_install_report "NVIDIA Docker" "ALREADY_INSTALLED" "NVIDIA Container Toolkit was already present"
-    fi
-else
-    echo -e "${YELLOW}⚠️  No NVIDIA GPU detected. Skipping NVIDIA Docker setup.${NC}"
-    log_install_report "NVIDIA Docker" "SKIP" "No NVIDIA GPU detected"
 fi
+
+# Yarn Installation
+echo -e "\n${CYAN}[5/12] Yarn Installation${NC}"
+if command_exists yarn; then
+    YARN_VERSION=$(yarn --version 2>/dev/null || echo "version unknown")
+    log_install_report "Yarn" "SKIP" "Already installed - v$YARN_VERSION"
+else
+    if sudo npm install -g yarn >/dev/null 2>&1; then
+        YARN_VERSION=$(yarn --version 2>/dev/null || echo "version unknown")
+        log_install_report "Yarn (npm)" "SUCCESS" "v$YARN_VERSION"
+    else
+        # Alternative yarn installation
+        if curl -o- -L https://yarnpkg.com/install.sh | bash >/dev/null 2>&1; then
+            export PATH="$HOME/.yarn/bin:$HOME/.config/yarn/global/node_modules/.bin:$PATH"
+            YARN_VERSION=$(yarn --version 2>/dev/null || echo "version unknown")
+            log_install_report "Yarn (alternative)" "SUCCESS" "v$YARN_VERSION"
+        else
+            log_install_report "Yarn" "FAILED" "Both installation methods failed"
+        fi
+    fi
+fi
+
+# Git Repository Cloning
+echo -e "\n${CYAN}[6/12] Main Repository (rl-swarm)${NC}"
+if [ -d "rl-swarm" ]; then
+    log_install_report "rl-swarm Repository" "SKIP" "Directory already exists"
+else
+    if git clone https://github.com/gensyn-ai/rl-swarm/ >/dev/null 2>&1; then
+        chmod +x ~/rl-swarm/run_rl_swarm.sh 2>/dev/null || true
+        chmod +x ~/rl-swarm/run_and_alert.sh 2>/dev/null || true
+        log_install_report "rl-swarm Repository" "SUCCESS" "Cloned and permissions set"
+    else
+        log_install_report "rl-swarm Repository" "FAILED" "Failed to clone repository"
+    fi
+fi
+
+# UFW Firewall
+echo -e "\n${CYAN}[7/12] Firewall Configuration${NC}"
+if sudo apt install ufw -y >/dev/null 2>&1; then
+    sudo ufw --force enable >/dev/null 2>&1
+    sudo ufw allow 22 >/dev/null 2>&1
+    sudo ufw allow 3000/tcp >/dev/null 2>&1
+    log_install_report "UFW Firewall" "SUCCESS" "Enabled with SSH (22) and port 3000 allowed"
+else
+    log_install_report "UFW Firewall" "FAILED" "Failed to install or configure UFW"
+fi
+
+# Cloudflare Tunnel
+echo -e "\n${CYAN}[8/12] Cloudflare Tunnel${NC}"
+if command_exists cloudflared; then
+    CLOUDFLARED_VERSION=$(cloudflared --version 2>/dev/null | head -n1 || echo "version unknown")
+    log_install_report "Cloudflared" "SKIP" "Already installed - $CLOUDFLARED_VERSION"
+else
+    if wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb && \
+       sudo dpkg -i cloudflared-linux-amd64.deb >/dev/null 2>&1; then
+        rm cloudflared-linux-amd64.deb 2>/dev/null || true
+        CLOUDFLARED_VERSION=$(cloudflared --version 2>/dev/null | head -n1 || echo "version unknown")
+        log_install_report "Cloudflared" "SUCCESS" "$CLOUDFLARED_VERSION"
+    else
+        log_install_report "Cloudflared" "FAILED" "Failed to download or install"
+    fi
+fi
+
+# Configuration Files Download
+echo -e "\n${CYAN}[9/12] Configuration Files${NC}"
+mkdir -p $HOME/rl-swarm/hivemind_exp/configs/mac/ 2>/dev/null || true
+
+if curl -o $HOME/rl-swarm/hivemind_exp/configs/mac/grpo-qwen-2.5-0.5b-deepseek-r1.yaml https://raw.githubusercontent.com/arookiecoder-ip/Gensyn-AI-Errors-Solution/main/grpo-qwen-2.5-0.5b-deepseek-r1.yaml >/dev/null 2>&1; then
+    log_install_report "Config File (YAML)" "SUCCESS" "Downloaded to configs/mac/"
+else
+    log_install_report "Config File (YAML)" "FAILED" "Failed to download configuration"
+fi
+
+if curl -L https://raw.githubusercontent.com/arookiecoder-ip/Gensyn-AI-Node-Monitoring/main/run_rl_swarm.sh -o ~/rl-swarm/run_rl_swarm.sh >/dev/null 2>&1; then
+    log_install_report "Monitoring Script" "SUCCESS" "Downloaded run_rl_swarm.sh"
+else
+    log_install_report "Monitoring Script" "FAILED" "Failed to download monitoring script"
+fi
+
+# Email Tools
+echo -e "\n${CYAN}[10/12] Email Tools${NC}"
+if sudo apt update >/dev/null 2>&1 && DEBIAN_FRONTEND=noninteractive sudo apt install expect msmtp curl -y >/dev/null 2>&1; then
+    log_install_report "Email Tools" "SUCCESS" "expect, msmtp, curl installed"
+else
+    log_install_report "Email Tools" "FAILED" "Failed to install email tools"
+fi
+
+# =============================================================================
+# INTERACTIVE MSMTP CONFIGURATION
+# =============================================================================
+
+echo -e "\n${CYAN}[10.1/12] MSMTP Email Configuration${NC}"
+echo -e "${CYAN}===========================================================${NC}"
+
+# Always ask for MSMTP configuration (overwrite if exists)
+if [ -f ~/.msmtprc ]; then
+    echo -e "${YELLOW}⚠️  Existing ~/.msmtprc will be overwritten${NC}"
+fi
+
+echo -e "\n${YELLOW}📧 MSMTP Email Configuration Setup${NC}"
+echo -e "${BLUE}Choose how you want to configure MSMTP:${NC}"
+echo -e "  ${CYAN}1)${NC} Pull configuration from GitHub repository or Gist"
+echo -e "  ${CYAN}2)${NC} Paste configuration directly"
+echo -e "  ${CYAN}3)${NC} Create template file (edit manually later)"
+echo -e "  ${CYAN}4)${NC} Skip MSMTP configuration"
 echo ""
 
-echo -e "${CYAN}[9/12] Email Configuration (MSMTP)${NC}"
-echo "==========================================================="
-echo -e "${YELLOW}Setting up email notifications...${NC}"
-
-# Install msmtp
-if ! command_exists msmtp; then
-    sudo apt install -y msmtp msmtp-mta
-    log_install_report "MSMTP" "SUCCESS" "MSMTP installed"
-else
-    echo -e "${GREEN}MSMTP already installed${NC}"
-    log_install_report "MSMTP" "ALREADY_INSTALLED" "MSMTP was already present"
-fi
-
-# Configure msmtp
-read -p "Do you want to configure email notifications? (y/n): " configure_email
-if [[ "$configure_email" =~ ^[Yy]$ ]]; then
-    read -p "Enter your email address: " user_email
-    read -p "Enter your SMTP server (e.g., smtp.gmail.com): " smtp_server
-    read -p "Enter SMTP port (usually 587 for TLS): " smtp_port
-    read -s -p "Enter your email password or app password: " email_password
-    echo ""
-    
-    # Create msmtp configuration
-    cat > ~/.msmtprc << EOF
-# Configuration created by Gensyn Installation Script
-# Date: 2025-06-19 13:33:25 UTC
+while true; do
+    read -p "Enter your choice (1-4): " msmtp_choice
+    case $msmtp_choice in
+        1)
+            echo -e "\n${YELLOW}📥 GitHub Repository/Gist Configuration${NC}"
+            read -p "Enter GitHub repository URL or Gist URL for MSMTP config: " github_repo
+            read -p "Enter file path in repository (e.g., .msmtprc or msmtprc) [default: .msmtprc]: " file_path
+            file_path=${file_path:-.msmtprc}
+            
+            if [[ -n "$github_repo" ]]; then
+                success=false
+                
+                # Try gist download first
+                if [[ "$github_repo" == *"gist.github.com"* ]]; then
+                    if download_gist_file "$github_repo" ~/.msmtprc; then
+                        chmod 600 ~/.msmtprc
+                        log_install_report "MSMTP Config (Gist)" "SUCCESS" "Downloaded from gist"
+                        success=true
+                    fi
+                fi
+                
+                # If gist failed or not a gist, try regular repo
+                if [[ "$success" == "false" ]]; then
+                    # Convert GitHub URL to raw content URL
+                    raw_url=$(echo "$github_repo" | sed 's|github.com|raw.githubusercontent.com|' | sed 's|/blob/||')
+                    if [[ ! "$raw_url" == *"/main/"* ]] && [[ ! "$raw_url" == *"/master/"* ]]; then
+                        raw_url="${raw_url}/main"
+                    fi
+                    full_url="${raw_url}/${file_path}"
+                    
+                    echo -e "Downloading from: ${CYAN}$full_url${NC}"
+                    if curl -o ~/.msmtprc "$full_url" >/dev/null 2>&1; then
+                        chmod 600 ~/.msmtprc
+                        log_install_report "MSMTP Config (GitHub)" "SUCCESS" "Downloaded from $github_repo"
+                        success=true
+                    fi
+                fi
+                
+                if [[ "$success" == "false" ]]; then
+                    echo -e "${RED}❌ Failed to download from GitHub/Gist${NC}"
+                    echo -e "Please check the URL and file path. Creating template instead..."
+                    msmtp_choice=3
+                    continue
+                fi
+            else
+                echo -e "${RED}❌ Invalid input. Creating template instead...${NC}"
+                msmtp_choice=3
+                continue
+            fi
+            break
+            ;;
+        2)
+            echo -e "\n${YELLOW}📝 Direct Configuration Input${NC}"
+            echo -e "${BLUE}Please paste your MSMTP configuration below.${NC}"
+            echo -e "${BLUE}Press Ctrl+D on a new line when finished:${NC}"
+            echo ""
+            
+            # Read multi-line input
+            config_content=""
+            while IFS= read -r line; do
+                config_content+="$line"$'\n'
+            done
+            
+            if [[ -n "$config_content" ]]; then
+                echo "$config_content" > ~/.msmtprc
+                chmod 600 ~/.msmtprc
+                log_install_report "MSMTP Config (Pasted)" "SUCCESS" "Configuration saved from user input"
+            else
+                echo -e "${RED}❌ No configuration provided. Creating template instead...${NC}"
+                msmtp_choice=3
+                continue
+            fi
+            break
+            ;;
+        3)
+            echo -e "\n${YELLOW}📄 Creating Template Configuration${NC}"
+            cat > ~/.msmtprc << 'EOF'
+# MSMTP Configuration File
+# Created on: 2025-06-19 13:08:37 UTC
 # User: arookiecoder-ip
+# 
+# Edit this file with your email settings
+# For Gmail, you'll need an "App Password" instead of your regular password
+# Enable 2FA first, then generate an app password at: https://myaccount.google.com/apppasswords
 
 defaults
 auth           on
@@ -384,65 +539,61 @@ tls            on
 tls_trust_file /etc/ssl/certs/ca-certificates.crt
 logfile        ~/.msmtp.log
 
-account        default
-host           $smtp_server
-port           $smtp_port
-from           $user_email
-user           $user_email
-password       $email_password
+# Gmail Configuration
+account        gmail
+host           smtp.gmail.com
+port           587
+from           your-email@gmail.com
+user           your-email@gmail.com
+password       your-app-password
+
+# Outlook/Hotmail Configuration (alternative)
+account        outlook
+host           smtp-mail.outlook.com
+port           587
+from           your-email@outlook.com
+user           your-email@outlook.com
+password       your-password
+
+# Yahoo Configuration (alternative)
+account        yahoo
+host           smtp.mail.yahoo.com
+port           587
+from           your-email@yahoo.com
+user           your-email@yahoo.com
+password       your-app-password
+
+# Custom SMTP Configuration (alternative)
+account        custom
+host           smtp.your-domain.com
+port           587
+from           your-email@your-domain.com
+user           your-email@your-domain.com
+password       your-password
+
+# Set default account (change to gmail, outlook, yahoo, or custom)
+account default : gmail
+
+# Uncomment and modify for debugging
+# logfile ~/.msmtp.log
 EOF
-    
-    chmod 600 ~/.msmtprc
-    
-    # Test email configuration
-    echo "Test email from Gensyn installation script" | msmtp "$user_email" && \
-    echo -e "${GREEN}✅ Email configuration successful${NC}" || \
-    echo -e "${YELLOW}⚠️  Email test failed. Please check your configuration.${NC}"
-    
-    log_install_report "Email Config" "SUCCESS" "Email notifications configured for $user_email"
-else
-    log_install_report "Email Config" "SKIP" "User chose not to configure email"
-fi
-echo ""
+            chmod 600 ~/.msmtprc
+            log_install_report "MSMTP Config (Template)" "SUCCESS" "Template created - requires manual editing"
+            echo -e "${YELLOW}⚠️  Please edit ~/.msmtprc with your actual email settings${NC}"
+            break
+            ;;
+        4)
+            log_install_report "MSMTP Config" "SKIP" "Configuration skipped by user"
+            break
+            ;;
+        *)
+            echo -e "${RED}❌ Invalid choice. Please enter 1, 2, 3, or 4.${NC}"
+            ;;
+    esac
+done
 
-echo -e "${CYAN}[10/12] Gensyn CLI Installation${NC}"
-echo "==========================================================="
-echo -e "${YELLOW}Installing Gensyn CLI...${NC}"
-
-# Check if gensyn CLI is already installed
-if command_exists gensyn; then
-    echo -e "${GREEN}Gensyn CLI is already installed${NC}"
-    gensyn --version 2>/dev/null || echo "Gensyn CLI present but version check failed"
-    log_install_report "Gensyn CLI" "ALREADY_INSTALLED" "Gensyn CLI was already present"
-else
-    echo -e "${YELLOW}Downloading and installing Gensyn CLI...${NC}"
-    # Create installation directory
-    mkdir -p ~/gensyn
-    cd ~/gensyn
-    
-    # Download Gensyn CLI (adjust URL as needed)
-    # Note: Replace with actual Gensyn CLI download URL when available
-    echo -e "${YELLOW}⚠️  Please provide the Gensyn CLI download URL or installation method${NC}"
-    read -p "Enter Gensyn CLI download URL (or press Enter to skip): " gensyn_url
-    
-    if [[ -n "$gensyn_url" ]]; then
-        wget "$gensyn_url" -O gensyn-cli.tar.gz
-        tar -xzf gensyn-cli.tar.gz
-        sudo cp gensyn /usr/local/bin/
-        sudo chmod +x /usr/local/bin/gensyn
-        log_install_report "Gensyn CLI" "SUCCESS" "Gensyn CLI installed from provided URL"
-        echo -e "${GREEN}✅ Gensyn CLI installed${NC}"
-    else
-        log_install_report "Gensyn CLI" "SKIP" "No download URL provided"
-        echo -e "${YELLOW}⚠️  Gensyn CLI installation skipped${NC}"
-    fi
-    
-    cd ~
-fi
-echo ""
-
+# Additional Files Setup
 echo -e "\n${CYAN}[11/12] Additional Files Setup${NC}"
-echo "==========================================================="
 
 # 1. MSMTP Configuration (Main Directory) - handled in previous step
 echo -e "MSMTP configuration handled in previous step."
@@ -450,16 +601,17 @@ echo -e "MSMTP configuration handled in previous step."
 # 2. Gensyn Crash Script (rl-swarm directory) - Always ask and update
 read -p "Enter Gensyn crash script repository URL or Gist URL (or press Enter to skip): " CRASH_SCRIPT_URL
 if [[ -n "$CRASH_SCRIPT_URL" ]]; then
-    echo -e "${YELLOW}📥 Processing crash script URL...${NC}"
     mkdir -p ~/rl-swarm 2>/dev/null || true
     
-    if clone_repository "$CRASH_SCRIPT_URL" ~/rl-swarm; then
-        echo -e "${GREEN}✅ Crash script files downloaded successfully${NC}"
-        echo -e "${YELLOW}📁 Files in ~/rl-swarm/:${NC}"
-        ls -la ~/rl-swarm/ 2>/dev/null || echo "Directory listing failed"
+    # Use temporary directory to avoid conflicts
+    temp_crash_dir=$(mktemp -d)
+    if clone_repository "$CRASH_SCRIPT_URL" "$temp_crash_dir"; then
+        # Copy files from temp directory to rl-swarm directory
+        cp -r "$temp_crash_dir"/* ~/rl-swarm/ 2>/dev/null || true
+        rm -rf "$temp_crash_dir" 2>/dev/null || true
         log_install_report "Gensyn Crash Script" "SUCCESS" "Downloaded/Updated to ~/rl-swarm/"
     else
-        echo -e "${RED}❌ Failed to download crash script files${NC}"
+        rm -rf "$temp_crash_dir" 2>/dev/null || true
         log_install_report "Gensyn Crash Script" "FAILED" "Failed to clone crash script repository"
     fi
 else
@@ -469,271 +621,153 @@ fi
 # 3. Swarm PEM File (rl-swarm directory) - Always ask and update
 read -p "Enter Swarm PEM file repository URL or Gist URL (or press Enter to skip): " PEM_FILE_URL
 if [[ -n "$PEM_FILE_URL" ]]; then
-    echo -e "${YELLOW}📥 Processing PEM file URL...${NC}"
     mkdir -p ~/rl-swarm 2>/dev/null || true
     
-    if clone_repository "$PEM_FILE_URL" ~/rl-swarm; then
-        echo -e "${GREEN}✅ PEM files downloaded successfully${NC}"
-        echo -e "${YELLOW}📁 Files in ~/rl-swarm/:${NC}"
-        ls -la ~/rl-swarm/ 2>/dev/null || echo "Directory listing failed"
+    # Use temporary directory to avoid conflicts
+    temp_pem_dir=$(mktemp -d)
+    if clone_repository "$PEM_FILE_URL" "$temp_pem_dir"; then
+        # Copy files from temp directory to rl-swarm directory
+        cp -r "$temp_pem_dir"/* ~/rl-swarm/ 2>/dev/null || true
+        rm -rf "$temp_pem_dir" 2>/dev/null || true
         log_install_report "Swarm PEM File" "SUCCESS" "Downloaded/Updated to ~/rl-swarm/"
     else
-        echo -e "${RED}❌ Failed to download PEM files${NC}"
+        rm -rf "$temp_pem_dir" 2>/dev/null || true
         log_install_report "Swarm PEM File" "FAILED" "Failed to clone PEM file repository"
     fi
 else
     log_install_report "Swarm PEM File" "SKIP" "No URL provided"
 fi
 
-# 4. Create main execution script
-echo -e "${YELLOW}Creating main execution script...${NC}"
-cat > ~/.rl-swarm.sh << 'EOF'
-#!/bin/bash
-
-# Main RL-Swarm execution script
-# This script manages the RL-Swarm mining process
-
-# Color codes
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m'
-
-# Configuration
-SWARM_DIR="$HOME/rl-swarm"
-LOG_FILE="$HOME/rl-swarm/swarm.log"
-
-# Function to log messages
-log_message() {
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOG_FILE"
-    echo -e "$1"
-}
-
-# Function to start RL-Swarm
-start_swarm() {
-    log_message "${GREEN}Starting RL-Swarm...${NC}"
-    cd "$SWARM_DIR"
-    
-    # Check if crash monitoring script exists
-    if [[ -f "run_and_alert.sh" ]]; then
-        chmod +x run_and_alert.sh
-        ./run_and_alert.sh
-    elif [[ -f "crash_monitor.sh" ]]; then
-        chmod +x crash_monitor.sh
-        ./crash_monitor.sh
-    else
-        log_message "${YELLOW}No specific crash monitoring script found. Running generic start.${NC}"
-        # Add your specific RL-Swarm start command here
-        echo "Please configure your RL-Swarm start command"
-    fi
-}
-
-# Function to stop RL-Swarm
-stop_swarm() {
-    log_message "${YELLOW}Stopping RL-Swarm...${NC}"
-    # Add stop commands as needed
-    pkill -f "rl-swarm" 2>/dev/null || true
-    log_message "${GREEN}RL-Swarm stopped${NC}"
-}
-
-# Function to check status
-check_status() {
-    if pgrep -f "rl-swarm" >/dev/null; then
-        log_message "${GREEN}RL-Swarm is running${NC}"
-    else
-        log_message "${RED}RL-Swarm is not running${NC}"
-    fi
-}
-
-# Main execution
-case "$1" in
-    start)
-        start_swarm
-        ;;
-    stop)
-        stop_swarm
-        ;;
-    status)
-        check_status
-        ;;
-    restart)
-        stop_swarm
-        sleep 2
-        start_swarm
-        ;;
-    *)
-        echo "Usage: $0 {start|stop|restart|status}"
-        exit 1
-        ;;
-esac
-EOF
-
-chmod +x ~/.rl-swarm.sh
-log_install_report "Main Script" "SUCCESS" "Created ~/.rl-swarm.sh execution script"
-echo -e "${GREEN}✅ Main execution script created at ~/.rl-swarm.sh${NC}"
-echo ""
+# =============================================================================
+# COMPREHENSIVE VERIFICATION & FINAL REPORT
+# =============================================================================
 
 echo -e "\n${CYAN}[12/12] Final Verification${NC}"
-echo "==========================================================="
+echo -e "${CYAN}===========================================================${NC}"
 
-# System Information (with timeouts to prevent hanging)
-HOSTNAME=$(timeout 3 hostname 2>/dev/null || echo "gcloud")
-UPTIME=$(timeout 3 uptime -p 2>/dev/null || echo "System active")
-MEMORY=$(timeout 3 free -h 2>/dev/null | awk '/^Mem:/{print $2}' || echo "Unknown")
-DISK_USAGE=$(timeout 3 df -h / 2>/dev/null | awk 'NR==2{print $5}' || echo "Unknown")
-LOAD_AVERAGE=$(timeout 3 uptime 2>/dev/null | awk -F'load average:' '{print $2}' | xargs || echo "Unknown")
+# Reset arrays for final verification
+INSTALLED_COMPONENTS=()
+FAILED_COMPONENTS=()
 
-echo -e "${WHITE}System Information:${NC}"
-echo -e "  Hostname: $HOSTNAME"
-echo -e "  Uptime: $UPTIME"
-echo -e "  Memory: $MEMORY"
-echo -e "  Disk Usage: $DISK_USAGE"
-echo -e "  Load Average: $LOAD_AVERAGE"
-echo ""
-
-# Component verification
-echo -e "${WHITE}Component Verification:${NC}"
-
-declare -a INSTALLED_COMPONENTS=()
-declare -a FAILED_COMPONENTS=()
+# Verify system packages
+SYSTEM_PACKAGES=("curl" "git" "wget" "jq" "make" "gcc" "nano" "tmux" "htop" "tar" "unzip")
+VERIFIED_PACKAGES=0
+for package in "${SYSTEM_PACKAGES[@]}"; do
+    if command_exists "$package"; then
+        ((VERIFIED_PACKAGES++))
+        INSTALLED_COMPONENTS+=("$package")
+    else
+        FAILED_COMPONENTS+=("$package")
+    fi
+done
+log_install_report "System Packages" "SUCCESS" "$VERIFIED_PACKAGES/${#SYSTEM_PACKAGES[@]} packages verified"
 
 # Docker verification
-echo -n "  Docker: "
 if command_exists docker; then
-    if timeout 10 sudo docker run --rm hello-world >/dev/null 2>&1; then
-        echo -e "${GREEN}✅ Working${NC}"
-        INSTALLED_COMPONENTS+=("Docker")
+    if sudo docker run --rm hello-world >/dev/null 2>&1; then
+        if check_service "docker"; then
+            log_install_report "Docker Service" "SUCCESS" "Running and enabled"
+            INSTALLED_COMPONENTS+=("Docker")
+        else
+            log_install_report "Docker Service" "FAILED" "Not running properly"
+            FAILED_COMPONENTS+=("Docker Service")
+        fi
     else
-        echo -e "${YELLOW}⚠️  Installed but not working properly${NC}"
-        FAILED_COMPONENTS+=("Docker")
+        log_install_report "Docker Functionality" "FAILED" "Docker command works but hello-world test failed"
+        FAILED_COMPONENTS+=("Docker Functionality")
     fi
 else
-    echo -e "${RED}❌ Not installed${NC}"
+    log_install_report "Docker Service" "FAILED" "Docker not installed"
     FAILED_COMPONENTS+=("Docker")
 fi
 
-# Docker Compose verification
-echo -n "  Docker Compose: "
-if command_exists docker-compose || docker compose version >/dev/null 2>&1; then
-    echo -e "${GREEN}✅ Installed${NC}"
-    INSTALLED_COMPONENTS+=("Docker Compose")
-else
-    echo -e "${RED}❌ Not installed${NC}"
-    FAILED_COMPONENTS+=("Docker Compose")
-fi
-
 # Python verification
-echo -n "  Python 3: "
-if command_exists python3; then
-    PYTHON_VERSION=$(python3 --version 2>&1)
-    echo -e "${GREEN}✅ $PYTHON_VERSION${NC}"
-    INSTALLED_COMPONENTS+=("Python 3")
+if command_exists python3 && command_exists pip3; then
+    log_install_report "Python Environment" "SUCCESS" "Python3 and pip3 available"
+    INSTALLED_COMPONENTS+=("Python Environment")
 else
-    echo -e "${RED}❌ Not installed${NC}"
-    FAILED_COMPONENTS+=("Python 3")
+    log_install_report "Python Environment" "FAILED" "Missing Python components"
+    FAILED_COMPONENTS+=("Python Environment")
 fi
 
-# pip verification
-echo -n "  pip3: "
-if command_exists pip3; then
-    echo -e "${GREEN}✅ Installed${NC}"
-    INSTALLED_COMPONENTS+=("pip3")
+# Node.js/Yarn verification
+if command_exists node && command_exists npm; then
+    if command_exists yarn; then
+        log_install_report "Node.js Environment" "SUCCESS" "Node.js, npm, and yarn available"
+        INSTALLED_COMPONENTS+=("Node.js Environment")
+    else
+        log_install_report "Node.js Environment" "PARTIAL" "Node.js and npm available, yarn missing"
+        FAILED_COMPONENTS+=("Yarn")
+    fi
 else
-    echo -e "${RED}❌ Not installed${NC}"
-    FAILED_COMPONENTS+=("pip3")
+    log_install_report "Node.js Environment" "FAILED" "Missing Node.js components"
+    FAILED_COMPONENTS+=("Node.js Environment")
 fi
 
-# Node.js verification
-echo -n "  Node.js: "
-if command_exists node; then
-    NODE_VERSION=$(node --version 2>&1)
-    echo -e "${GREEN}✅ $NODE_VERSION${NC}"
-    INSTALLED_COMPONENTS+=("Node.js")
+# Repository verification
+if check_directory "$HOME/rl-swarm" && check_file "$HOME/rl-swarm/run_rl_swarm.sh"; then
+    if check_file "$HOME/rl-swarm/hivemind_exp/configs/mac/grpo-qwen-2.5-0.5b-deepseek-r1.yaml"; then
+        log_install_report "Project Structure" "SUCCESS" "All files and configurations in place"
+        INSTALLED_COMPONENTS+=("Project Structure")
+    else
+        log_install_report "Project Structure" "PARTIAL" "Repository cloned but config missing"
+        FAILED_COMPONENTS+=("Config File")
+    fi
 else
-    echo -e "${RED}❌ Not installed${NC}"
-    FAILED_COMPONENTS+=("Node.js")
+    log_install_report "Project Structure" "FAILED" "Repository or scripts missing"
+    FAILED_COMPONENTS+=("Project Structure")
 fi
 
-# npm verification
-echo -n "  npm: "
-if command_exists npm; then
-    NPM_VERSION=$(npm --version 2>&1)
-    echo -e "${GREEN}✅ $NPM_VERSION${NC}"
-    INSTALLED_COMPONENTS+=("npm")
+# UFW verification
+if command_exists ufw; then
+    if sudo ufw status | grep -q "Status: active" 2>/dev/null; then
+        log_install_report "UFW Firewall" "SUCCESS" "Active and configured"
+        INSTALLED_COMPONENTS+=("UFW Firewall")
+    else
+        log_install_report "UFW Firewall" "FAILED" "Installed but not active"
+        FAILED_COMPONENTS+=("UFW Status")
+    fi
 else
-    echo -e "${RED}❌ Not installed${NC}"
-    FAILED_COMPONENTS+=("npm")
+    log_install_report "UFW Firewall" "FAILED" "Not installed"
+    FAILED_COMPONENTS+=("UFW Firewall")
 fi
 
-# Go verification
-echo -n "  Go: "
-if command_exists go; then
-    GO_VERSION=$(go version 2>&1)
-    echo -e "${GREEN}✅ $GO_VERSION${NC}"
-    INSTALLED_COMPONENTS+=("Go")
+# Cloudflared verification
+if command_exists cloudflared; then
+    log_install_report "Cloudflared" "SUCCESS" "Installed and available"
+    INSTALLED_COMPONENTS+=("Cloudflared")
 else
-    echo -e "${RED}❌ Not installed${NC}"
-    FAILED_COMPONENTS+=("Go")
-fi
-
-# Git verification
-echo -n "  Git: "
-if command_exists git; then
-    GIT_VERSION=$(git --version 2>&1)
-    echo -e "${GREEN}✅ $GIT_VERSION${NC}"
-    INSTALLED_COMPONENTS+=("Git")
-else
-    echo -e "${RED}❌ Not installed${NC}"
-    FAILED_COMPONENTS+=("Git")
+    log_install_report "Cloudflared" "FAILED" "Not installed"
+    FAILED_COMPONENTS+=("Cloudflared")
 fi
 
 # MSMTP verification
-echo -n "  MSMTP: "
-if command_exists msmtp; then
-    if check_file "$HOME/.msmtprc"; then
-        echo -e "${GREEN}✅ Installed and configured${NC}"
-        INSTALLED_COMPONENTS+=("MSMTP")
+if check_file ~/.msmtprc; then
+    if [[ $(stat -c %a ~/.msmtprc 2>/dev/null) == "600" ]]; then
+        # Check if it's still the template or has been configured
+        if grep -q "your-email@gmail.com" ~/.msmtprc 2>/dev/null; then
+            log_install_report "MSMTP Configuration" "PARTIAL" "Template created - needs manual configuration"
+            FAILED_COMPONENTS+=("MSMTP Config")
+        else
+            log_install_report "MSMTP Configuration" "SUCCESS" "Configuration file ready with proper permissions"
+            INSTALLED_COMPONENTS+=("MSMTP Configuration")
+        fi
     else
-        echo -e "${YELLOW}⚠️  Installed but not configured${NC}"
-        INSTALLED_COMPONENTS+=("MSMTP")
+        log_install_report "MSMTP Configuration" "FAILED" "File exists but permissions are incorrect"
+        FAILED_COMPONENTS+=("MSMTP Permissions")
     fi
 else
-    echo -e "${RED}❌ Not installed${NC}"
-    FAILED_COMPONENTS+=("MSMTP")
-fi
-
-# NVIDIA verification
-echo -n "  NVIDIA Support: "
-if command_exists nvidia-smi; then
-    if timeout 5 nvidia-smi >/dev/null 2>&1; then
-        echo -e "${GREEN}✅ Available${NC}"
-        INSTALLED_COMPONENTS+=("NVIDIA Support")
-    else
-        echo -e "${YELLOW}⚠️  Drivers installed but not working${NC}"
-        FAILED_COMPONENTS+=("NVIDIA Support")
-    fi
-else
-    echo -e "${YELLOW}⚠️  Not available${NC}"
-    # Not adding to failed since it's optional
-fi
-
-# Gensyn CLI verification
-echo -n "  Gensyn CLI: "
-if command_exists gensyn; then
-    echo -e "${GREEN}✅ Installed${NC}"
-    INSTALLED_COMPONENTS+=("Gensyn CLI")
-else
-    echo -e "${RED}❌ Not installed${NC}"
-    FAILED_COMPONENTS+=("Gensyn CLI")
+    log_install_report "MSMTP Configuration" "SKIP" "No configuration file created"
 fi
 
 # Additional files verification - Check for crash script files
 crash_script_found=false
 if check_directory "$HOME/rl-swarm"; then
-    # Check if any files were added to rl-swarm directory
-    total_files=$(find "$HOME/rl-swarm" -type f 2>/dev/null | wc -l)
+    # Check if any new files were added to rl-swarm directory
+    # Look for any files that might be from crash script repositories
+    total_files=$(find "$HOME/rl-swarm" -type f | wc -l)
     
-    # Look for common crash script files
+    # Look for common crash script files or any shell scripts
     for file in "run_and_alert.sh" "crash_monitor.sh" "alert.sh" "monitor.sh" "crash.sh" "gensyn_crash.sh"; do
         if check_file "$HOME/rl-swarm/$file"; then
             crash_script_found=true
@@ -742,65 +776,48 @@ if check_directory "$HOME/rl-swarm"; then
     done
     
     # Also check for any .sh files that might be crash scripts
-    if [ "$crash_script_found" = false ] && [ "$total_files" -gt 0 ]; then
-        if find "$HOME/rl-swarm" -name "*.sh" -type f 2>/dev/null | grep -v "run_rl_swarm.sh" | grep -q .; then
-            crash_script_found=true
-        fi
+    if [ "$crash_script_found" = false ] && find "$HOME/rl-swarm" -name "*.sh" -type f | grep -v "run_rl_swarm.sh" | grep -q .; then
+        crash_script_found=true
     fi
 fi
 
-echo -n "  Crash Scripts: "
 if [ "$crash_script_found" = true ]; then
-    echo -e "${GREEN}✅ Found${NC}"
-    INSTALLED_COMPONENTS+=("Crash Scripts")
+    log_install_report "Gensyn Crash Script Files" "SUCCESS" "Crash script files found in ~/rl-swarm/"
+    INSTALLED_COMPONENTS+=("Gensyn Crash Script Files")
 else
-    echo -e "${YELLOW}⚠️  Not found${NC}"
-    FAILED_COMPONENTS+=("Crash Scripts")
+    log_install_report "Gensyn Crash Script Files" "SKIP" "No crash script files detected"
 fi
 
-# Check for PEM files
-pem_file_found=false
+# Additional files verification - Check for PEM files
+pem_files_found=false
 if check_directory "$HOME/rl-swarm"; then
-    if find "$HOME/rl-swarm" -name "*.pem" -type f 2>/dev/null | grep -q .; then
-        pem_file_found=true
+    # Look for any files that might be from PEM repositories
+    if find "$HOME/rl-swarm" -name "*.pem" -type f | grep -q . 2>/dev/null; then
+        pem_files_found=true
+    fi
+    
+    # Also check for key files, certificate files, or config files
+    if [ "$pem_files_found" = false ] && find "$HOME/rl-swarm" -name "*.key" -o -name "*.crt" -o -name "*.cert" -o -name "*swarm*" | grep -q . 2>/dev/null; then
+        pem_files_found=true
     fi
 fi
 
-echo -n "  PEM Files: "
-if [ "$pem_file_found" = true ]; then
-    echo -e "${GREEN}✅ Found${NC}"
-    INSTALLED_COMPONENTS+=("PEM Files")
+if [ "$pem_files_found" = true ]; then
+    log_install_report "Swarm PEM Files" "SUCCESS" "PEM files found in ~/rl-swarm/"
+    INSTALLED_COMPONENTS+=("Swarm PEM Files")
 else
-    echo -e "${YELLOW}⚠️  Not found${NC}"
-    FAILED_COMPONENTS+=("PEM Files")
+    log_install_report "Swarm PEM Files" "SKIP" "No PEM files detected"
 fi
 
-# Main execution script verification
-echo -n "  Main Script: "
-if check_file "$HOME/.rl-swarm.sh"; then
-    echo -e "${GREEN}✅ Created${NC}"
-    INSTALLED_COMPONENTS+=("Main Script")
-else
-    echo -e "${RED}❌ Not created${NC}"
-    FAILED_COMPONENTS+=("Main Script")
-fi
+# =============================================================================
+# FINAL SUMMARY REPORT
+# =============================================================================
 
-echo ""
+echo -e "\n${CYAN}===========================================================${NC}"
+echo -e "${BLUE}                📊 FINAL INSTALLATION REPORT 📊            ${NC}"
+echo -e "${CYAN}===========================================================${NC}"
 
-# Service status checks (optional)
-echo -e "${WHITE}Service Status:${NC}"
-for service in "docker" "ssh"; do
-    echo -n "  $service: "
-    if check_service "$service"; then
-        echo -e "${GREEN}✅ Running${NC}"
-    else
-        echo -e "${YELLOW}⚠️  Not running or not enabled${NC}"
-    fi
-done
-
-echo ""
-
-# Calculate success rate
+# Calculate success percentage
 TOTAL_COMPONENTS=$((${#INSTALLED_COMPONENTS[@]} + ${#FAILED_COMPONENTS[@]}))
 if [ $TOTAL_COMPONENTS -gt 0 ]; then
     SUCCESS_PERCENTAGE=$(( ${#INSTALLED_COMPONENTS[@]} * 100 / $TOTAL_COMPONENTS ))
@@ -808,42 +825,88 @@ else
     SUCCESS_PERCENTAGE=0
 fi
 
-echo -e "${WHITE}Installation Summary:${NC}"
-echo -e "  Total Components: $TOTAL_COMPONENTS"
-echo -e "  Successfully Installed: ${#INSTALLED_COMPONENTS[@]}"
-echo -e "  Failed/Missing: ${#FAILED_COMPONENTS[@]}"
-echo -e "  Success Rate: $SUCCESS_PERCENTAGE%"
+SETUP_TIME="2025-06-19 13:08:37 UTC"
+echo -e "\n${BLUE}📅 Setup completed: ${SETUP_TIME}${NC}"
+echo -e "${BLUE}👤 Setup by: arookiecoder-ip${NC}"
+echo -e "${BLUE}📈 Success Rate: ${SUCCESS_PERCENTAGE}% (${#INSTALLED_COMPONENTS[@]}/${TOTAL_COMPONENTS})${NC}"
 
-if [ $SUCCESS_PERCENTAGE -ge 80 ]; then
-    echo -e "\n${GREEN}🎉 Installation completed successfully!${NC}"
-elif [ $SUCCESS_PERCENTAGE -ge 60 ]; then
-    echo -e "\n${YELLOW}⚠️  Installation completed with some issues.${NC}"
-else
-    echo -e "\n${RED}❌ Installation completed with significant issues.${NC}"
-fi
+echo -e "\n${GREEN}✅ SUCCESSFULLY INSTALLED (${#INSTALLED_COMPONENTS[@]})${NC}"
+for component in "${INSTALLED_COMPONENTS[@]}"; do
+    echo -e "   ${GREEN}✓${NC} $component"
+done
 
-# Display failed components if any
 if [ ${#FAILED_COMPONENTS[@]} -gt 0 ]; then
-    echo -e "\n${RED}Failed/Missing Components:${NC}"
+    echo -e "\n${RED}❌ FAILED OR MISSING (${#FAILED_COMPONENTS[@]})${NC}"
     for component in "${FAILED_COMPONENTS[@]}"; do
-        echo -e "  - $component"
+        echo -e "   ${RED}✗${NC} $component"
     done
 fi
 
-echo ""
-echo -e "${WHITE}Installation Report:${NC}"
-echo "==========================================================="
-for report in "${INSTALL_REPORTS[@]}"; do
-    echo "$report"
-done
+echo -e "\n${BLUE}🎯 READY TO USE:${NC}"
+echo -e "   ${CYAN}cd ~/rl-swarm${NC}"
+echo -e "   ${CYAN}./run_rl_swarm.sh${NC}"
 
-echo ""
-echo -e "${CYAN}Next Steps:${NC}"
-echo "1. Log out and log back in to apply docker group changes"
-echo "2. Reboot the system if NVIDIA drivers were installed"
-echo "3. Run: ~/.rl-swarm.sh start  # To start the RL-Swarm process"
-echo "4. Run: ~/.rl-swarm.sh status # To check the status"
-echo "5. Check ~/rl-swarm/ directory for additional configuration files"
-echo ""
-echo -e "${GREEN}Installation script completed at $(date)${NC}"
-echo -e "${YELLOW}Generated on: 2025-06-19 13:33:25 UTC by arookiecoder-ip${NC}"
+echo -e "\n${YELLOW}⚠️  IMPORTANT NEXT STEPS:${NC}"
+echo -e "   1. Logout and login (or run: ${CYAN}newgrp docker${NC})"
+if check_file ~/.msmtprc && grep -q "your-email@gmail.com" ~/.msmtprc 2>/dev/null; then
+    echo -e "   2. ${YELLOW}REQUIRED:${NC} Edit ~/.msmtprc with your email settings"
+fi
+echo -e "   3. Test Docker: ${CYAN}docker run hello-world${NC}"
+echo -e "   4. Test email (if configured): ${CYAN}echo 'Test' | msmtp your-email@domain.com${NC}"
+
+# Generate setup report
+REPORT_FILE="$HOME/gensyn_setup_report_$(date +%Y%m%d_%H%M%S).txt"
+{
+    echo "Gensyn Node Setup Report"
+    echo "========================"
+    echo "Date: $SETUP_TIME"
+    echo "User: arookiecoder-ip"
+    echo "Success Rate: ${SUCCESS_PERCENTAGE}%"
+    echo ""
+    echo "Successfully Installed (${#INSTALLED_COMPONENTS[@]}):"
+    for component in "${INSTALLED_COMPONENTS[@]}"; do
+        echo "  ✓ $component"
+    done
+    echo ""
+    if [ ${#FAILED_COMPONENTS[@]} -gt 0 ]; then
+        echo "Failed Components (${#FAILED_COMPONENTS[@]}):"
+        for component in "${FAILED_COMPONENTS[@]}"; do
+            echo "  ✗ $component"
+        done
+        echo ""
+    fi
+    echo "Files and Directories:"
+    if check_directory "$HOME/rl-swarm"; then
+        echo "  ✓ ~/rl-swarm/ directory exists"
+    fi
+    if check_file ~/.msmtprc; then
+        echo "  ✓ ~/.msmtprc configuration exists"
+    fi
+    if [ "$crash_script_found" = true ]; then
+        echo "  ✓ Crash script files found in ~/rl-swarm/"
+    fi
+    if [ "$pem_files_found" = true ]; then
+        echo "  ✓ PEM files found in ~/rl-swarm/"
+    fi
+    echo ""
+    echo "Next Steps:"
+    echo "1. Logout and login again for Docker group permissions"
+    if check_file ~/.msmtprc && grep -q "your-email@gmail.com" ~/.msmtprc 2>/dev/null; then
+        echo "2. IMPORTANT: Configure ~/.msmtprc with your email settings"
+    fi
+    echo "3. Navigate to ~/rl-swarm and run ./run_rl_swarm.sh"
+} > "$REPORT_FILE"
+
+echo -e "\n${BLUE}📄 Report saved: ${REPORT_FILE}${NC}"
+
+echo -e "\n${CYAN}===========================================================${NC}"
+echo -e "${GREEN}                    🔔 SETUP COMPLETE! 🔔                  ${NC}"
+echo -e "${CYAN}===========================================================${NC}"
+
+if [ ${#FAILED_COMPONENTS[@]} -eq 0 ]; then
+    echo -e "\n${GREEN}🎉 Perfect! All components installed successfully!${NC}"
+else
+    echo -e "\n${YELLOW}⚠️  Setup completed with ${#FAILED_COMPONENTS[@]} issues. Please review and fix the failed components.${NC}"
+fi
+
+echo -e "\n${GREEN}🚀 Your Gensyn Node setup is complete!${NC}"
