@@ -408,30 +408,51 @@ EOF
     done
 fi
 
-# Additional Git Repositories
-echo -e "\n${CYAN}[11/12] Additional Repositories${NC}"
-read -p "Enter a Git repository URL to clone (or press Enter to skip): " GIT_URL_1
-if [[ -n "$GIT_URL_1" ]]; then
-    REPO_NAME=$(basename "$GIT_URL_1" .git)
-    if git clone "$GIT_URL_1" >/dev/null 2>&1; then
-        log_install_report "Custom Repository 1" "SUCCESS" "$REPO_NAME cloned successfully"
+# Additional Files Setup
+echo -e "\n${CYAN}[11/12] Additional Files Setup${NC}"
+
+# 1. MSMTP Configuration (Main Directory)
+read -p "Enter MSMTP configuration repository URL (or press Enter to skip): " MSMTP_URL
+if [[ -n "$MSMTP_URL" ]]; then
+    if git clone "$MSMTP_URL" ~/msmtp-config-temp >/dev/null 2>&1; then
+        if [ -f ~/msmtp-config-temp/.msmtprc ] || [ -f ~/msmtp-config-temp/msmtprc ]; then
+            cp ~/msmtp-config-temp/.msmtprc ~/.msmtprc 2>/dev/null || cp ~/msmtp-config-temp/msmtprc ~/.msmtprc 2>/dev/null
+            chmod 600 ~/.msmtprc
+            rm -rf ~/msmtp-config-temp
+            log_install_report "MSMTP Config Repository" "SUCCESS" "Configuration installed to ~/.msmtprc"
+        else
+            rm -rf ~/msmtp-config-temp
+            log_install_report "MSMTP Config Repository" "FAILED" "No msmtprc file found in repository"
+        fi
     else
-        log_install_report "Custom Repository 1" "FAILED" "Failed to clone $GIT_URL_1"
+        log_install_report "MSMTP Config Repository" "FAILED" "Failed to clone MSMTP repository"
     fi
 else
-    log_install_report "Custom Repository 1" "SKIP" "No URL provided"
+    log_install_report "MSMTP Config Repository" "SKIP" "No URL provided"
 fi
 
-read -p "Enter another Git repository URL to clone (or press Enter to skip): " GIT_URL_2
-if [[ -n "$GIT_URL_2" ]]; then
-    REPO_NAME=$(basename "$GIT_URL_2" .git)
-    if git clone "$GIT_URL_2" >/dev/null 2>&1; then
-        log_install_report "Custom Repository 2" "SUCCESS" "$REPO_NAME cloned successfully"
+# 2. Gensyn Crash Script (rl-swarm directory)
+read -p "Enter Gensyn crash script repository URL (or press Enter to skip): " CRASH_SCRIPT_URL
+if [[ -n "$CRASH_SCRIPT_URL" ]]; then
+    if git clone "$CRASH_SCRIPT_URL" ~/rl-swarm/ >/dev/null 2>&1; then
+        log_install_report "Gensyn Crash Script" "SUCCESS" "Cloned to ~/rl-swarm/"
     else
-        log_install_report "Custom Repository 2" "FAILED" "Failed to clone $GIT_URL_2"
+        log_install_report "Gensyn Crash Script" "FAILED" "Failed to clone crash script repository"
     fi
 else
-    log_install_report "Custom Repository 2" "SKIP" "No URL provided"
+    log_install_report "Gensyn Crash Script" "SKIP" "No URL provided"
+fi
+
+# 3. Swarm PEM File (rl-swarm directory)
+read -p "Enter Swarm PEM file repository URL (or press Enter to skip): " PEM_FILE_URL
+if [[ -n "$PEM_FILE_URL" ]]; then
+    if git clone "$PEM_FILE_URL" ~/rl-swarm/ >/dev/null 2>&1; then
+        log_install_report "Swarm PEM File" "SUCCESS" "Cloned to ~/rl-swarm/"
+    else
+        log_install_report "Swarm PEM File" "FAILED" "Failed to clone PEM file repository"
+    fi
+else
+    log_install_report "Swarm PEM File" "SKIP" "No URL provided"
 fi
 
 # =============================================================================
