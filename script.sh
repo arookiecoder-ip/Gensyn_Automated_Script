@@ -146,11 +146,38 @@ check_system_requirements() {
         sudo -v
     fi
     
-    # Check internet connectivity
-    if ! ping -c 1 google.com >/dev/null 2>&1; then
-        echo -e "${RED}❌ No internet connection detected. Please check your network connection.${NC}"
+   # Check internet connectivity with multiple methods
+echo -e "${YELLOW}Checking internet connectivity...${NC}"
+internet_ok=false
+
+# Method 1: Try curl to a reliable endpoint
+if curl -s --connect-timeout 10 --max-time 15 https://google.com >/dev/null 2>&1; then
+    internet_ok=true
+elif curl -s --connect-timeout 10 --max-time 15 http://google.com >/dev/null 2>&1; then
+    internet_ok=true
+# Method 2: Try wget as fallback
+elif wget -q --spider --timeout=10 --tries=1 https://google.com 2>/dev/null; then
+    internet_ok=true
+elif wget -q --spider --timeout=10 --tries=1 http://google.com 2>/dev/null; then
+    internet_ok=true
+# Method 3: Try ping as last resort
+elif ping -c 1 -W 5 8.8.8.8 >/dev/null 2>&1; then
+    internet_ok=true
+elif ping -c 1 -W 5 1.1.1.1 >/dev/null 2>&1; then
+    internet_ok=true
+fi
+
+if [ "$internet_ok" = false ]; then
+    echo -e "${RED}❌ No internet connection detected. Please check your network connection.${NC}"
+    echo -e "${YELLOW}Tried multiple methods: curl, wget, ping${NC}"
+    read -p "Do you want to continue anyway? (y/n): " continue_anyway
+    if [[ ! "$continue_anyway" =~ ^[Yy]$ ]]; then
         exit 1
     fi
+    echo -e "${YELLOW}⚠️  Continuing without internet verification...${NC}"
+else
+    echo -e "${GREEN}✅ Internet connectivity confirmed${NC}"
+fi
     
     echo -e "${GREEN}✅ System requirements check passed${NC}\n"
 }
