@@ -609,13 +609,13 @@ if [[ -n "$CRASH_SCRIPT_URL" ]]; then
         # Copy files from temp directory to rl-swarm directory
         cp -r "$temp_crash_dir"/* ~/rl-swarm/ 2>/dev/null || true
         rm -rf "$temp_crash_dir" 2>/dev/null || true
-        log_install_report "Gensyn Crash Script" "✅SUCCESS" "Downloaded/Updated to ~/rl-swarm/"
+        log_install_report "Gensyn Crash Script" "SUCCESS" "Downloaded/Updated to ~/rl-swarm/"
     else
         rm -rf "$temp_crash_dir" 2>/dev/null || true
-        log_install_report "Gensyn Crash Script" "🛑FAILED" "Failed to clone crash script repository"
+        log_install_report "Gensyn Crash Script" "FAILED" "Failed to clone crash script repository"
     fi
 else
-    log_install_report "Gensyn Crash Script" "⚠️SKIP" "No URL provided"
+    log_install_report "Gensyn Crash Script" "SKIP" "No URL provided"
 fi
 
 # 3. Swarm PEM File (rl-swarm directory) - Always ask and update
@@ -629,10 +629,10 @@ if [[ -n "$PEM_FILE_URL" ]]; then
         # Copy files from temp directory to rl-swarm directory
         cp -r "$temp_pem_dir"/* ~/rl-swarm/ 2>/dev/null || true
         rm -rf "$temp_pem_dir" 2>/dev/null || true
-        log_install_report "Swarm PEM File" "✅SUCCESS" "Downloaded/Updated to ~/rl-swarm/"
+        log_install_report "Swarm PEM File" "SUCCESS" "Downloaded/Updated to ~/rl-swarm/"
     else
         rm -rf "$temp_pem_dir" 2>/dev/null || true
-        log_install_report "Swarm PEM File" "🛑FAILED" "Failed to clone PEM file repository"
+        log_install_report "Swarm PEM File" "FAILED" "Failed to clone PEM file repository"
     fi
 else
     log_install_report "Swarm PEM File" "SKIP" "No URL provided"
