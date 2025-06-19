@@ -257,7 +257,7 @@ fi
 
 # Email Tools
 echo -e "\n${CYAN}[10/12] Email Tools${NC}"
-if sudo apt update >/dev/null 2>&1 && sudo apt install expect msmtp curl -y >/dev/null 2>&1; then
+if sudo apt update >/dev/null 2>&1 && echo "msmtp msmtp/apparmor boolean false" | sudo debconf-set-selections && sudo apt install expect msmtp curl -y >/dev/null 2>&1; then
     log_install_report "Email Tools" "SUCCESS" "expect, msmtp, curl installed"
 else
     log_install_report "Email Tools" "FAILED" "Failed to install email tools"
