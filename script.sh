@@ -506,8 +506,12 @@ echo -e "MSMTP configuration already handled in previous step."
 read -p "Enter Gensyn crash script repository URL or Gist URL (or press Enter to skip): " CRASH_SCRIPT_URL
 if [[ -n "$CRASH_SCRIPT_URL" ]]; then
     mkdir -p ~/rl-swarm 2>/dev/null || true
-    if clone_repository "$CRASH_SCRIPT_URL" ~/rl-swarm/gensyn-crash-script; then
-        log_install_report "Gensyn Crash Script" "SUCCESS" "Cloned to ~/rl-swarm/gensyn-crash-script"
+    if [ -d ~/rl-swarm ]; then
+        echo -e "${YELLOW}⚠️  Existing crash script directory will be overwritten${NC}"
+        rm -rf ~/rl-swarm 2>/dev/null || true
+    fi
+    if clone_repository "$CRASH_SCRIPT_URL" ~/rl-swarm; then
+        log_install_report "Gensyn Crash Script" "SUCCESS" "Cloned to ~/rl-swarm"
     else
         log_install_report "Gensyn Crash Script" "FAILED" "Failed to clone crash script repository"
     fi
@@ -519,15 +523,18 @@ fi
 read -p "Enter Swarm PEM file repository URL or Gist URL (or press Enter to skip): " PEM_FILE_URL
 if [[ -n "$PEM_FILE_URL" ]]; then
     mkdir -p ~/rl-swarm 2>/dev/null || true
-    if clone_repository "$PEM_FILE_URL" ~/rl-swarm/swarm-pem-files; then
-        log_install_report "Swarm PEM File" "SUCCESS" "Cloned to ~/rl-swarm/swarm-pem-files"
+    if [ -d ~/rl-swarm ]; then
+        echo -e "${YELLOW}⚠️  Existing PEM files directory will be overwritten${NC}"
+        rm -rf ~/rl-swarm 2>/dev/null || true
+    fi
+    if clone_repository "$PEM_FILE_URL" ~/rl-swarm; then
+        log_install_report "Swarm PEM File" "SUCCESS" "Cloned to ~/rl-swarm"
     else
         log_install_report "Swarm PEM File" "FAILED" "Failed to clone PEM file repository"
     fi
 else
     log_install_report "Swarm PEM File" "SKIP" "No URL provided"
 fi
-
 # =============================================================================
 # COMPREHENSIVE VERIFICATION & FINAL REPORT
 # =============================================================================
@@ -656,7 +663,7 @@ if check_directory "$HOME/rl-swarm/gensyn-crash-script"; then
     INSTALLED_COMPONENTS+=("Gensyn Crash Script")
 fi
 
-if check_directory "$HOME/rl-swarm/swarm-pem-files"; then
+if check_directory "$HOME/rl-swarm"; then
     log_install_report "Swarm PEM Files" "SUCCESS" "Directory exists in rl-swarm"
     INSTALLED_COMPONENTS+=("Swarm PEM Files")
 fi
