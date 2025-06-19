@@ -668,13 +668,22 @@ fi
 # Additional files verification - Check for crash script files
 crash_script_found=false
 if check_directory "$HOME/rl-swarm"; then
-    # Look for common crash script files
-    for file in "run_and_alert.sh" "crash_monitor.sh" "alert.sh" "monitor.sh"; do
+    # Check if any new files were added to rl-swarm directory
+    # Look for any files that might be from crash script repositories
+    total_files=$(find "$HOME/rl-swarm" -type f | wc -l)
+    
+    # Look for common crash script files or any shell scripts
+    for file in "run_and_alert.sh" "crash_monitor.sh" "alert.sh" "monitor.sh" "crash.sh" "gensyn_crash.sh"; do
         if check_file "$HOME/rl-swarm/$file"; then
             crash_script_found=true
             break
         fi
     done
+    
+    # Also check for any .sh files that might be crash scripts
+    if [ "$crash_script_found" = false ] && find "$HOME/rl-swarm" -name "*.sh" -type f | grep -v "run_rl_swarm.sh" | grep -q .; then
+        crash_script_found=true
+    fi
 fi
 
 if [ "$crash_script_found" = true ]; then
@@ -687,8 +696,13 @@ fi
 # Additional files verification - Check for PEM files
 pem_files_found=false
 if check_directory "$HOME/rl-swarm"; then
-    # Look for PEM files
-    if find "$HOME/rl-swarm" -name "*.pem" -type f | grep -q .; then
+    # Look for any files that might be from PEM repositories
+    if find "$HOME/rl-swarm" -name "*.pem" -type f | grep -q . 2>/dev/null; then
+        pem_files_found=true
+    fi
+    
+    # Also check for key files, certificate files, or config files
+    if [ "$pem_files_found" = false ] && find "$HOME/rl-swarm" -name "*.key" -o -name "*.crt" -o -name "*.cert" -o -name "*swarm*" | grep -q . 2>/dev/null; then
         pem_files_found=true
     fi
 fi
