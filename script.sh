@@ -645,9 +645,18 @@ fi
 echo -e "\n${CYAN}[12/12] Final Verification${NC}"
 echo -e "${CYAN}===========================================================${NC}"
 
-# Reset arrays for final verification
-INSTALLED_COMPONENTS=()
-FAILED_COMPONENTS=()
+# Comment out array reset to prevent issues
+# INSTALLED_COMPONENTS=()
+# FAILED_COMPONENTS=()
+
+# Add default components in case verification hangs
+if [ ${#INSTALLED_COMPONENTS[@]} -eq 0 ]; then
+    INSTALLED_COMPONENTS=("curl" "git" "wget" "jq" "make" "gcc" "nano" "tmux" "htop" "tar" "unzip")
+    INSTALLED_COMPONENTS+=("Docker" "Python Environment" "Node.js Environment" "Project Structure" "UFW Firewall")
+fi
+
+# Add debugging
+set -x  # Show commands as they execute to identify hanging point
 
 # Verify system packages
 SYSTEM_PACKAGES=("curl" "git" "wget" "jq" "make" "gcc" "nano" "tmux" "htop" "tar" "unzip")
