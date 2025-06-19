@@ -346,92 +346,92 @@ if [ -f ~/.msmtprc ]; then
 fi
 
 echo -e "\n${YELLOW}📧 MSMTP Email Configuration Setup${NC}"
-    echo -e "${BLUE}Choose how you want to configure MSMTP:${NC}"
-    echo -e "  ${CYAN}1)${NC} Pull configuration from GitHub repository or Gist"
-    echo -e "  ${CYAN}2)${NC} Paste configuration directly"
-    echo -e "  ${CYAN}3)${NC} Create template file (edit manually later)"
-    echo -e "  ${CYAN}4)${NC} Skip MSMTP configuration"
-    echo ""
-    
-    while true; do
-        read -p "Enter your choice (1-4): " msmtp_choice
-        case $msmtp_choice in
-            1)
-                echo -e "\n${YELLOW}📥 GitHub Repository/Gist Configuration${NC}"
-                read -p "Enter GitHub repository URL or Gist URL for MSMTP config: " github_repo
-                read -p "Enter file path in repository (e.g., .msmtprc or msmtprc) [default: .msmtprc]: " file_path
-                file_path=${file_path:-.msmtprc}
+echo -e "${BLUE}Choose how you want to configure MSMTP:${NC}"
+echo -e "  ${CYAN}1)${NC} Pull configuration from GitHub repository or Gist"
+echo -e "  ${CYAN}2)${NC} Paste configuration directly"
+echo -e "  ${CYAN}3)${NC} Create template file (edit manually later)"
+echo -e "  ${CYAN}4)${NC} Skip MSMTP configuration"
+echo ""
+
+while true; do
+    read -p "Enter your choice (1-4): " msmtp_choice
+    case $msmtp_choice in
+        1)
+            echo -e "\n${YELLOW}📥 GitHub Repository/Gist Configuration${NC}"
+            read -p "Enter GitHub repository URL or Gist URL for MSMTP config: " github_repo
+            read -p "Enter file path in repository (e.g., .msmtprc or msmtprc) [default: .msmtprc]: " file_path
+            file_path=${file_path:-.msmtprc}
+            
+            if [[ -n "$github_repo" ]]; then
+                success=false
                 
-                if [[ -n "$github_repo" ]]; then
-                    success=false
-                    
-                    # Try gist download first
-                    if [[ "$github_repo" == *"gist.github.com"* ]]; then
-                        if download_gist_file "$github_repo" ~/.msmtprc; then
-                            chmod 600 ~/.msmtprc
-                            log_install_report "MSMTP Config (Gist)" "SUCCESS" "Downloaded from gist"
-                            success=true
-                        fi
+                # Try gist download first
+                if [[ "$github_repo" == *"gist.github.com"* ]]; then
+                    if download_gist_file "$github_repo" ~/.msmtprc; then
+                        chmod 600 ~/.msmtprc
+                        log_install_report "MSMTP Config (Gist)" "SUCCESS" "Downloaded from gist"
+                        success=true
                     fi
-                    
-                    # If gist failed or not a gist, try regular repo
-                    if [[ "$success" == "false" ]]; then
-                        # Convert GitHub URL to raw content URL
-                        raw_url=$(echo "$github_repo" | sed 's|github.com|raw.githubusercontent.com|' | sed 's|/blob/||')
-                        if [[ ! "$raw_url" == *"/main/"* ]] && [[ ! "$raw_url" == *"/master/"* ]]; then
-                            raw_url="${raw_url}/main"
-                        fi
-                        full_url="${raw_url}/${file_path}"
-                        
-                        echo -e "Downloading from: ${CYAN}$full_url${NC}"
-                        if curl -o ~/.msmtprc "$full_url" >/dev/null 2>&1; then
-                            chmod 600 ~/.msmtprc
-                            log_install_report "MSMTP Config (GitHub)" "SUCCESS" "Downloaded from $github_repo"
-                            success=true
-                        fi
+                fi
+                
+                # If gist failed or not a gist, try regular repo
+                if [[ "$success" == "false" ]]; then
+                    # Convert GitHub URL to raw content URL
+                    raw_url=$(echo "$github_repo" | sed 's|github.com|raw.githubusercontent.com|' | sed 's|/blob/||')
+                    if [[ ! "$raw_url" == *"/main/"* ]] && [[ ! "$raw_url" == *"/master/"* ]]; then
+                        raw_url="${raw_url}/main"
                     fi
+                    full_url="${raw_url}/${file_path}"
                     
-                    if [[ "$success" == "false" ]]; then
-                        echo -e "${RED}❌ Failed to download from GitHub/Gist${NC}"
-                        echo -e "Please check the URL and file path. Creating template instead..."
-                        msmtp_choice=3
-                        continue
+                    echo -e "Downloading from: ${CYAN}$full_url${NC}"
+                    if curl -o ~/.msmtprc "$full_url" >/dev/null 2>&1; then
+                        chmod 600 ~/.msmtprc
+                        log_install_report "MSMTP Config (GitHub)" "SUCCESS" "Downloaded from $github_repo"
+                        success=true
                     fi
-                else
-                    echo -e "${RED}❌ Invalid input. Creating template instead...${NC}"
+                fi
+                
+                if [[ "$success" == "false" ]]; then
+                    echo -e "${RED}❌ Failed to download from GitHub/Gist${NC}"
+                    echo -e "Please check the URL and file path. Creating template instead..."
                     msmtp_choice=3
                     continue
                 fi
-                break
-                ;;
-            2)
-                echo -e "\n${YELLOW}📝 Direct Configuration Input${NC}"
-                echo -e "${BLUE}Please paste your MSMTP configuration below.${NC}"
-                echo -e "${BLUE}Press Ctrl+D on a new line when finished:${NC}"
-                echo ""
-                
-                # Read multi-line input
-                config_content=""
-                while IFS= read -r line; do
-                    config_content+="$line"$'\n'
-                done
-                
-                if [[ -n "$config_content" ]]; then
-                    echo "$config_content" > ~/.msmtprc
-                    chmod 600 ~/.msmtprc
-                    log_install_report "MSMTP Config (Pasted)" "SUCCESS" "Configuration saved from user input"
-                else
-                    echo -e "${RED}❌ No configuration provided. Creating template instead...${NC}"
-                    msmtp_choice=3
-                    continue
-                fi
-                break
-                ;;
-            3)
-                echo -e "\n${YELLOW}📄 Creating Template Configuration${NC}"
-                cat > ~/.msmtprc << 'EOF'
+            else
+                echo -e "${RED}❌ Invalid input. Creating template instead...${NC}"
+                msmtp_choice=3
+                continue
+            fi
+            break
+            ;;
+        2)
+            echo -e "\n${YELLOW}📝 Direct Configuration Input${NC}"
+            echo -e "${BLUE}Please paste your MSMTP configuration below.${NC}"
+            echo -e "${BLUE}Press Ctrl+D on a new line when finished:${NC}"
+            echo ""
+            
+            # Read multi-line input
+            config_content=""
+            while IFS= read -r line; do
+                config_content+="$line"$'\n'
+            done
+            
+            if [[ -n "$config_content" ]]; then
+                echo "$config_content" > ~/.msmtprc
+                chmod 600 ~/.msmtprc
+                log_install_report "MSMTP Config (Pasted)" "SUCCESS" "Configuration saved from user input"
+            else
+                echo -e "${RED}❌ No configuration provided. Creating template instead...${NC}"
+                msmtp_choice=3
+                continue
+            fi
+            break
+            ;;
+        3)
+            echo -e "\n${YELLOW}📄 Creating Template Configuration${NC}"
+            cat > ~/.msmtprc << 'EOF'
 # MSMTP Configuration File
-# Created on: 2025-06-19 12:42:42 UTC
+# Created on: 2025-06-19 13:08:37 UTC
 # User: arookiecoder-ip
 # 
 # Edit this file with your email settings
@@ -482,20 +482,20 @@ account default : gmail
 # Uncomment and modify for debugging
 # logfile ~/.msmtp.log
 EOF
-                chmod 600 ~/.msmtprc
-                log_install_report "MSMTP Config (Template)" "SUCCESS" "Template created - requires manual editing"
-                echo -e "${YELLOW}⚠️  Please edit ~/.msmtprc with your actual email settings${NC}"
-                break
-                ;;
-            4)
-                log_install_report "MSMTP Config" "SKIP" "Configuration skipped by user"
-                break
-                ;;
-            *)
-                echo -e "${RED}❌ Invalid choice. Please enter 1, 2, 3, or 4.${NC}"
-                ;;
-        esac
-    done
+            chmod 600 ~/.msmtprc
+            log_install_report "MSMTP Config (Template)" "SUCCESS" "Template created - requires manual editing"
+            echo -e "${YELLOW}⚠️  Please edit ~/.msmtprc with your actual email settings${NC}"
+            break
+            ;;
+        4)
+            log_install_report "MSMTP Config" "SKIP" "Configuration skipped by user"
+            break
+            ;;
+        *)
+            echo -e "${RED}❌ Invalid choice. Please enter 1, 2, 3, or 4.${NC}"
+            ;;
+    esac
+done
 
 # Additional Files Setup
 echo -e "\n${CYAN}[11/12] Additional Files Setup${NC}"
@@ -507,13 +507,16 @@ echo -e "MSMTP configuration handled in previous step."
 read -p "Enter Gensyn crash script repository URL or Gist URL (or press Enter to skip): " CRASH_SCRIPT_URL
 if [[ -n "$CRASH_SCRIPT_URL" ]]; then
     mkdir -p ~/rl-swarm 2>/dev/null || true
-    if [ -d ~/rl-swarm ]; then
-        echo -e "${YELLOW}⚠️  Existing crash script directory will be overwritten${NC}"
-        rm -rf ~/rl-swarm 2>/dev/null || true
-    fi
-    if clone_repository "$CRASH_SCRIPT_URL" ~/rl-swarm; then
-        log_install_report "Gensyn Crash Script" "SUCCESS" "Downloaded/Updated to ~/rl-swarm"
+    
+    # Use temporary directory to avoid conflicts
+    temp_crash_dir=$(mktemp -d)
+    if clone_repository "$CRASH_SCRIPT_URL" "$temp_crash_dir"; then
+        # Copy files from temp directory to rl-swarm directory
+        cp -r "$temp_crash_dir"/* ~/rl-swarm/ 2>/dev/null || true
+        rm -rf "$temp_crash_dir" 2>/dev/null || true
+        log_install_report "Gensyn Crash Script" "SUCCESS" "Downloaded/Updated to ~/rl-swarm/"
     else
+        rm -rf "$temp_crash_dir" 2>/dev/null || true
         log_install_report "Gensyn Crash Script" "FAILED" "Failed to clone crash script repository"
     fi
 else
@@ -524,18 +527,22 @@ fi
 read -p "Enter Swarm PEM file repository URL or Gist URL (or press Enter to skip): " PEM_FILE_URL
 if [[ -n "$PEM_FILE_URL" ]]; then
     mkdir -p ~/rl-swarm 2>/dev/null || true
-    if [ -d ~/rl-swarm/swarm-pem-files ]; then
-        echo -e "${YELLOW}⚠️  Existing PEM files directory will be overwritten${NC}"
-        rm -rf ~/rl-swarm/swarm-pem-files 2>/dev/null || true
-    fi
-    if clone_repository "$PEM_FILE_URL" ~/rl-swarm/swarm-pem-files; then
-        log_install_report "Swarm PEM File" "SUCCESS" "Downloaded/Updated to ~/rl-swarm/swarm-pem-files"
+    
+    # Use temporary directory to avoid conflicts
+    temp_pem_dir=$(mktemp -d)
+    if clone_repository "$PEM_FILE_URL" "$temp_pem_dir"; then
+        # Copy files from temp directory to rl-swarm directory
+        cp -r "$temp_pem_dir"/* ~/rl-swarm/ 2>/dev/null || true
+        rm -rf "$temp_pem_dir" 2>/dev/null || true
+        log_install_report "Swarm PEM File" "SUCCESS" "Downloaded/Updated to ~/rl-swarm/"
     else
+        rm -rf "$temp_pem_dir" 2>/dev/null || true
         log_install_report "Swarm PEM File" "FAILED" "Failed to clone PEM file repository"
     fi
 else
     log_install_report "Swarm PEM File" "SKIP" "No URL provided"
 fi
+
 # =============================================================================
 # COMPREHENSIVE VERIFICATION & FINAL REPORT
 # =============================================================================
@@ -658,15 +665,39 @@ else
     log_install_report "MSMTP Configuration" "SKIP" "No configuration file created"
 fi
 
-# Additional files verification
+# Additional files verification - Check for crash script files
+crash_script_found=false
 if check_directory "$HOME/rl-swarm"; then
-    log_install_report "Gensyn Crash Script" "SUCCESS" "Directory exists in rl-swarm"
-    INSTALLED_COMPONENTS+=("Gensyn Crash Script")
+    # Look for common crash script files
+    for file in "run_and_alert.sh" "crash_monitor.sh" "alert.sh" "monitor.sh"; do
+        if check_file "$HOME/rl-swarm/$file"; then
+            crash_script_found=true
+            break
+        fi
+    done
 fi
 
+if [ "$crash_script_found" = true ]; then
+    log_install_report "Gensyn Crash Script Files" "SUCCESS" "Crash script files found in ~/rl-swarm/"
+    INSTALLED_COMPONENTS+=("Gensyn Crash Script Files")
+else
+    log_install_report "Gensyn Crash Script Files" "SKIP" "No crash script files detected"
+fi
+
+# Additional files verification - Check for PEM files
+pem_files_found=false
 if check_directory "$HOME/rl-swarm"; then
-    log_install_report "Swarm PEM Files" "SUCCESS" "Directory exists in rl-swarm"
+    # Look for PEM files
+    if find "$HOME/rl-swarm" -name "*.pem" -type f | grep -q .; then
+        pem_files_found=true
+    fi
+fi
+
+if [ "$pem_files_found" = true ]; then
+    log_install_report "Swarm PEM Files" "SUCCESS" "PEM files found in ~/rl-swarm/"
     INSTALLED_COMPONENTS+=("Swarm PEM Files")
+else
+    log_install_report "Swarm PEM Files" "SKIP" "No PEM files detected"
 fi
 
 # =============================================================================
@@ -685,7 +716,7 @@ else
     SUCCESS_PERCENTAGE=0
 fi
 
-SETUP_TIME="2025-06-19 12:42:42 UTC"
+SETUP_TIME="2025-06-19 13:08:37 UTC"
 echo -e "\n${BLUE}📅 Setup completed: ${SETUP_TIME}${NC}"
 echo -e "${BLUE}👤 Setup by: arookiecoder-ip${NC}"
 echo -e "${BLUE}📈 Success Rate: ${SUCCESS_PERCENTAGE}% (${#INSTALLED_COMPONENTS[@]}/${TOTAL_COMPONENTS})${NC}"
@@ -742,11 +773,11 @@ REPORT_FILE="$HOME/gensyn_setup_report_$(date +%Y%m%d_%H%M%S).txt"
     if check_file ~/.msmtprc; then
         echo "  ✓ ~/.msmtprc configuration exists"
     fi
-    if check_directory "$HOME/rl-swarm"; then
-        echo "  ✓ ~/rl-swarm/ exists"
+    if [ "$crash_script_found" = true ]; then
+        echo "  ✓ Crash script files found in ~/rl-swarm/"
     fi
-    if check_directory "$HOME/rl-swarm"; then
-        echo "  ✓ ~/rl-swarm exists"
+    if [ "$pem_files_found" = true ]; then
+        echo "  ✓ PEM files found in ~/rl-swarm/"
     fi
     echo ""
     echo "Next Steps:"
