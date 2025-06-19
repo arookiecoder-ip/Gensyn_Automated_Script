@@ -625,9 +625,15 @@ fi
 
 
 # 3. Swarm PEM File (rl-swarm directory) - Always ask and update
-echo -n "Enter Gensyn crash script repository URL or Gist URL (or press Enter to skip): "
+while [[ -z "$CRASH_SCRIPT_URL" ]]; do
+  read -p "Enter Gensyn crash script repository URL or Gist URL (or press Enter to skip): " CRASH_SCRIPT_URL
+  if [[ -z "$CRASH_SCRIPT_URL" ]]; then
+    echo -e "${YELLOW}⚠️  No URL provided, skipping...${NC}"
+    break
+  fi
+done
 read CRASH_SCRIPT_URL
-if [[ -n "$PEM_FILE_URL" ]]; then
+    if [[ -n "$PEM_FILE_URL" ]]; then
     mkdir -p ~/rl-swarm 2>/dev/null || true
     
     # Use temporary directory to avoid conflicts
