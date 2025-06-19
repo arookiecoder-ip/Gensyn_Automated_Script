@@ -609,13 +609,13 @@ if [[ -n "$CRASH_SCRIPT_URL" ]]; then
         # Copy files from temp directory to rl-swarm directory
         cp -r "$temp_crash_dir"/* ~/rl-swarm/ 2>/dev/null || true
         rm -rf "$temp_crash_dir" 2>/dev/null || true
-        log_install_report "Gensyn Crash Script" "SUCCESS" "Downloaded/Updated to ~/rl-swarm/"
+        log_install_report "Gensyn Crash Script" "✅SUCCESS" "Downloaded/Updated to ~/rl-swarm/"
     else
         rm -rf "$temp_crash_dir" 2>/dev/null || true
-        log_install_report "Gensyn Crash Script" "FAILED" "Failed to clone crash script repository"
+        log_install_report "Gensyn Crash Script" "🛑FAILED" "Failed to clone crash script repository"
     fi
 else
-    log_install_report "Gensyn Crash Script" "SKIP" "No URL provided"
+    log_install_report "Gensyn Crash Script" "⚠️SKIP" "No URL provided"
 fi
 
 # 3. Swarm PEM File (rl-swarm directory) - Always ask and update
@@ -629,43 +629,13 @@ if [[ -n "$PEM_FILE_URL" ]]; then
         # Copy files from temp directory to rl-swarm directory
         cp -r "$temp_pem_dir"/* ~/rl-swarm/ 2>/dev/null || true
         rm -rf "$temp_pem_dir" 2>/dev/null || true
-        log_install_report "Swarm PEM File" "SUCCESS" "Downloaded/Updated to ~/rl-swarm/"
+        log_install_report "Swarm PEM File" "✅SUCCESS" "Downloaded/Updated to ~/rl-swarm/"
     else
         rm -rf "$temp_pem_dir" 2>/dev/null || true
-        log_install_report "Swarm PEM File" "FAILED" "Failed to clone PEM file repository"
+        log_install_report "Swarm PEM File" "🛑FAILED" "Failed to clone PEM file repository"
     fi
 else
     log_install_report "Swarm PEM File" "SKIP" "No URL provided"
 fi
 
-
-# =============================================================================
-# COMPREHENSIVE VERIFICATION & FINAL REPORT
-# =============================================================================
-
-echo -e "\n${CYAN}[12/12] Final Verification${NC}"
-echo -e "${CYAN}===========================================================${NC}"
-
-# Comment out array reset to preserve previously added components
-# INSTALLED_COMPONENTS=()
-# FAILED_COMPONENTS=()
-
-# Add default components as fallback if arrays are empty
-if [ ${#INSTALLED_COMPONENTS[@]} -eq 0 ]; then
-    INSTALLED_COMPONENTS=("curl" "git" "wget" "jq" "make" "gcc" "nano" "tmux" "htop" "tar" "unzip")
-    INSTALLED_COMPONENTS+=("Docker" "Python Environment" "Node.js Environment" "Project Structure" "UFW Firewall")
-fi
-
-# Verify system packages
-SYSTEM_PACKAGES=("curl" "git" "wget" "jq" "make" "gcc" "nano" "tmux" "htop" "tar" "unzip")
-VERIFIED_PACKAGES=0
-for package in "${SYSTEM_PACKAGES[@]}"; do
-    if command_exists "$package"; then
-        ((VERIFIED_PACKAGES++))
-        INSTALLED_COMPONENTS+=("$package")
-    else
-        FAILED_COMPONENTS+=("$package")
-    fi
-done
-log_install_report "System Packages" "SUCCESS" "$VERIFIED_PACKAGES/${#SYSTEM_PACKAGES[@]} packages verified"
 echo -e "\n${GREEN}🚀 Your Gensyn Node setup is complete!${NC}"
