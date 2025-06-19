@@ -858,6 +858,11 @@ echo -e "   4. Test email (if configured): ${CYAN}echo 'Test' | msmtp your-email
 
 # Generate setup report
 REPORT_FILE="$HOME/gensyn_setup_report_$(date +%Y%m%d_%H%M%S).txt"
+
+# Add debug output
+echo "Debug: INSTALLED_COMPONENTS array contains ${#INSTALLED_COMPONENTS[@]} items"
+echo "Debug: FAILED_COMPONENTS array contains ${#FAILED_COMPONENTS[@]} items"
+echo "Debug: Creating report at $REPORT_FILE"
 {
     echo "Gensyn Node Setup Report"
     echo "========================"
