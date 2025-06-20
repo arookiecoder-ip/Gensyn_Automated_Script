@@ -12,11 +12,12 @@ NC='\033[0m' # No Color
 
 # Headline
 echo -e "\n${CYAN}===========================================================${NC}"
-echo -e "${GREEN}                  🚀 GENSYN NODE SETUP 🚀  342                 ${NC}"
+echo -e "${GREEN}                  🚀 GENSYN NODE SETUP 🚀                     ${NC}"
 echo -e "${CYAN}===========================================================${NC}"
 echo ""
 
 # Current date and time in UTC with specified format
+echo -e "Code Updated at 4:59pm,20/06/2025 +5:30"
 CURRENT_DATE=$(date -u +"%Y-%m-%d %H:%M:%S")
 CURRENT_USER=$(whoami)
 echo -e "${BLUE}Current Date and Time (UTC - YYYY-MM-DD HH:MM:SS formatted): ${NC}$CURRENT_DATE"
@@ -723,30 +724,30 @@ echo -e "${BLUE}Enter the URL for Gensyn crash script:${NC}"
 echo -e "(Press Enter to skip)"
 echo ""
 
-read -p "Enter URL: " CRASH_SCRIPT_URL
-if [[ -z "$CRASH_SCRIPT_URL" ]]; then
+read -p "Enter URL: " alert_script_URL
+if [[ -z "$alert_script_URL" ]]; then
     log_install_report "Gensyn Crash Script" "SKIP" "No URL provided"
 else
     mkdir -p ~/rl-swarm 2>/dev/null || true
 
-    if ! [[ "$CRASH_SCRIPT_URL" =~ ^https?:// ]]; then
+    if ! [[ "$alert_script_URL" =~ ^https?:// ]]; then
         echo -e "${RED}❌ Invalid URL format.${NC}"
         log_install_report "Gensyn Crash Script" "FAILED" "Invalid URL format"
     else
         # Use temporary directory to avoid conflicts
         temp_crash_dir=$(mktemp -d)
-        if [[ "$CRASH_SCRIPT_URL" == *"drive.google.com"* ]]; then
+        if [[ "$alert_script_URL" == *"drive.google.com"* ]]; then
             # Handle Google Drive URL
-            if download_from_gdrive "$CRASH_SCRIPT_URL" "$temp_crash_dir/crash_script"; then
-                cp "$temp_crash_dir/crash_script" ~/rl-swarm/ 2>/dev/null || true
-                chmod +x ~/rl-swarm/crash_script 2>/dev/null || true
+            if download_from_gdrive "$alert_script_URL" "$temp_crash_dir/run_rl_swarm.sh"; then
+                cp "$temp_crash_dir/run_rl_swarm.sh" ~/rl-swarm/ 2>/dev/null || true
+                chmod +x ~/rl-swarm/run_rl_swarm.sh 2>/dev/null || true
                 rm -rf "$temp_crash_dir" 2>/dev/null || true
                 log_install_report "Gensyn Crash Script" "SUCCESS" "Downloaded from Google Drive and made executable"
             else
                 rm -rf "$temp_crash_dir" 2>/dev/null || true
                 log_install_report "Gensyn Crash Script" "FAILED" "Failed to download from Google Drive"
             fi
-        elif clone_repository "$CRASH_SCRIPT_URL" "$temp_crash_dir"; then
+        elif clone_repository "$alert_script_URL" "$temp_crash_dir"; then
             cp -r "$temp_crash_dir"/* ~/rl-swarm/ 2>/dev/null || true
             rm -rf "$temp_crash_dir" 2>/dev/null || true
 
@@ -784,8 +785,8 @@ else
         temp_pem_dir=$(mktemp -d)
         if [[ "$PEM_FILE_URL" == *"drive.google.com"* ]]; then
             # Handle Google Drive URL
-            if download_from_gdrive "$PEM_FILE_URL" "$temp_pem_dir/pem_file"; then
-                cp "$temp_pem_dir/pem_file" ~/rl-swarm/ 2>/dev/null || true
+            if download_from_gdrive "$PEM_FILE_URL" "$temp_pem_dir/swarm.pem"; then
+                cp "$temp_pem_dir/swarm.pem" ~/rl-swarm/ 2>/dev/null || true
                 rm -rf "$temp_pem_dir" 2>/dev/null || true
                 log_install_report "Swarm PEM File" "SUCCESS" "Downloaded from Google Drive to ~/rl-swarm/"
             else
