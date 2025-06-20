@@ -12,7 +12,7 @@ NC='\033[0m' # No Color
 
 # Headline
 echo -e "\n${CYAN}===========================================================${NC}"
-echo -e "${GREEN}                  🚀 GENSYN NODE SETUP 🚀                   ${NC}"
+echo -e "${GREEN}                  🚀 GENSYN NODE SETUP 🚀  342                 ${NC}"
 echo -e "${CYAN}===========================================================${NC}"
 echo ""
 
@@ -43,14 +43,135 @@ log_install_report() {
     fi
 }
 
+# Function to install Google Drive CLI tools
+install_gdrive_tools() {
+    echo -e "\n${CYAN}Installing Google Drive CLI tools...${NC}"
+    
+    # Install rclone (supports Google Drive)
+    if command_exists rclone; then
+        RCLONE_VERSION=$(rclone version | head -n 1)
+        log_install_report "rclone" "SKIP" "Already installed - $RCLONE_VERSION"
+    else
+        if curl https://rclone.org/install.sh | sudo bash >/dev/null 2>&1; then
+            RCLONE_VERSION=$(rclone version | head -n 1)
+            log_install_report "rclone" "SUCCESS" "$RCLONE_VERSION"
+        else
+            log_install_report "rclone" "FAILED" "Failed to install rclone"
+            return 1
+        fi
+    fi
+    
+    # Install gdown (Python tool for Google Drive)
+    if pip3 show gdown >/dev/null 2>&1; then
+        GDOWN_VERSION=$(pip3 show gdown | grep "Version" | awk '{print $2}')
+        log_install_report "gdown" "SKIP" "Already installed - v$GDOWN_VERSION"
+    else
+        if pip3 install gdown >/dev/null 2>&1; then
+            GDOWN_VERSION=$(pip3 show gdown | grep "Version" | awk '{print $2}')
+            log_install_report "gdown" "SUCCESS" "v$GDOWN_VERSION"
+        else
+            log_install_report "gdown" "FAILED" "Failed to install gdown"
+            return 1
+        fi
+    fi
+    
+    return 0
+}
+
+# Function to download file from Google Drive
+download_from_gdrive() {
+    local drive_url="$1"
+    local destination="$2"
+    
+    # Extract file ID from Google Drive URL
+    local file_id=""
+    
+    # Format: https://drive.google.com/file/d/FILE_ID/view
+    if [[ "$drive_url" =~ drive\.google\.com/file/d/([^/]+) ]]; then
+        file_id="${BASH_REMATCH[1]}"
+    # Format: https://drive.google.com/open?id=FILE_ID
+    elif [[ "$drive_url" =~ drive\.google\.com/open\?id=([^&]+) ]]; then
+        file_id="${BASH_REMATCH[1]}"
+    # Format: https://docs.google.com/document/d/FILE_ID/edit
+    elif [[ "$drive_url" =~ docs\.google\.com/\w+/d/([^/]+) ]]; then
+        file_id="${BASH_REMATCH[1]}"
+    fi
+    
+    if [[ -z "$file_id" ]]; then
+        echo "Invalid Google Drive URL format"
+        return 1
+    fi
+    
+    # Try multiple download methods
+    local success=false
+    
+    # Method 1: gdown
+    if command_exists gdown; then
+        if gdown --id "$file_id" -O "$destination" >/dev/null 2>&1; then
+            success=true
+        fi
+    fi
+    
+    # Method 2: wget with direct link
+    if [[ "$success" == "false" ]]; then
+        local direct_url="https://drive.google.com/uc?export=download&id=$file_id"
+        if wget --no-check-certificate "$direct_url" -O "$destination" >/dev/null 2>&1; then
+            success=true
+        fi
+    fi
+    
+    # Method 3: curl with direct link
+    if [[ "$success" == "false" ]]; then
+        local direct_url="https://drive.google.com/uc?export=download&id=$file_id"
+        if curl -L -o "$destination" "$direct_url" >/dev/null 2>&1; then
+            success=true
+        fi
+    fi
+    
+    if [[ "$success" == "true" ]]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
 # Function to clone gist or regular git repository
 clone_repository() {
     local url="$1"
     local destination="$2"
     local temp_dir=$(mktemp -d)
     
+    # Check if it's a Google Drive URL
+    if [[ "$url" == *"drive.google.com"* ]]; then
+        # For Google Drive URLs, try to download the file
+        if download_from_gdrive "$url" "$temp_dir/downloaded_file" >/dev/null 2>&1; then
+            if [[ -n "$destination" ]]; then
+                # Create destination directory if it doesn't exist
+                mkdir -p "$destination" 2>/dev/null || true
+                
+                # Copy files from temp directory to destination
+                if cp -r "$temp_dir"/* "$destination/" 2>/dev/null; then
+                    rm -rf "$temp_dir" 2>/dev/null || true
+                    return 0
+                else
+                    # If copy fails, try move
+                    if mv "$temp_dir"/* "$destination/" 2>/dev/null; then
+                        rm -rf "$temp_dir" 2>/dev/null || true
+                        return 0
+                    fi
+                fi
+            else
+                # If no destination specified, just verify the download worked
+                rm -rf "$temp_dir" 2>/dev/null || true
+                return 0
+            fi
+        fi
+        
+        # Cleanup on failure
+        rm -rf "$temp_dir" 2>/dev/null || true
+        return 1
     # Check if it's a gist URL
-    if [[ "$url" == *"gist.github.com"* ]]; then
+    elif [[ "$url" == *"gist.github.com"* ]]; then
         # For gists, we need to append .git to clone
         local git_url="$url"
         if [[ ! "$git_url" == *".git" ]]; then
@@ -99,13 +220,20 @@ clone_repository() {
     fi
 }
 
-# Function to download single file from gist
-download_gist_file() {
-    local gist_url="$1"
+# Function to download single file from gist or Google Drive
+download_file() {
+    local url="$1"
     local destination="$2"
     
+    # Check if it's a Google Drive URL
+    if [[ "$url" == *"drive.google.com"* ]]; then
+        if download_from_gdrive "$url" "$destination"; then
+            return 0
+        else
+            return 1
+        fi
     # Check if it's a gist URL
-    if [[ "$gist_url" == *"gist.github.com"* ]]; then
+    elif [[ "$url" == *"gist.github.com"* ]]; then
         # Extract username and gist ID from different gist URL formats
         # Format 1: https://gist.github.com/username/gist_id
         # Format 2: https://gist.github.com/gist_id
@@ -114,7 +242,7 @@ download_gist_file() {
         local gist_id=""
         
         # Remove protocol and domain
-        local path_part=$(echo "$gist_url" | sed 's|https://gist.github.com/||' | sed 's|http://gist.github.com/||')
+        local path_part=$(echo "$url" | sed 's|https://gist.github.com/||' | sed 's|http://gist.github.com/||')
         
         # Split by forward slash
         IFS='/' read -ra URL_PARTS <<< "$path_part"
@@ -127,7 +255,7 @@ download_gist_file() {
             # Format: gist_id only
             gist_id="${URL_PARTS[0]}"
             # Try to extract username from the original URL or use a default
-            username=$(echo "$gist_url" | grep -o '/[^/]*/' | sed 's|/||g' | head -n1)
+            username=$(echo "$url" | grep -o '/[^/]*/' | sed 's|/||g' | head -n1)
             if [[ -z "$username" ]]; then
                 username="anonymous"
             fi
@@ -160,7 +288,7 @@ download_gist_file() {
         
         # Method 3: Try to get the raw URL by scraping the gist page
         if [[ "$success" == "false" ]]; then
-            local raw_url=$(curl -s "$gist_url" | grep -o 'https://gist.githubusercontent.com/[^"]*' | head -n1)
+            local raw_url=$(curl -s "$url" | grep -o 'https://gist.githubusercontent.com/[^"]*' | head -n1)
             if [[ -n "$raw_url" ]]; then
                 if curl -s -f "$raw_url" -o "$destination" 2>/dev/null; then
                     success=true
@@ -184,7 +312,22 @@ download_gist_file() {
         else
             return 1
         fi
+    # Regular GitHub URL
+    elif [[ "$url" == *"github.com"* && ! "$url" == *"gist.github.com"* ]]; then
+        # Convert GitHub URL to raw content URL
+        raw_url=$(echo "$url" | sed 's|github.com|raw.githubusercontent.com|' | sed 's|/blob/||')
+        if [[ ! "$raw_url" == *"/main/"* ]] && [[ ! "$raw_url" == *"/master/"* ]]; then
+            raw_url="${raw_url}/main"
+        fi
+        
+        # Try to download
+        if curl -s -f "$raw_url" -o "$destination" 2>/dev/null; then
+            return 0
+        else
+            return 1
+        fi
     fi
+    
     return 1
 }
 
@@ -262,6 +405,15 @@ if sudo apt install screen curl iptables build-essential git wget lz4 jq make gc
     log_install_report "Essential Packages" "SUCCESS" "All essential packages installed"
 else
     log_install_report "Essential Packages" "FAILED" "Some essential packages failed to install"
+fi
+
+# Google Drive Tools Installation
+echo -e "\n${CYAN}[1.5/12] Google Drive Tools Installation${NC}"
+install_gdrive_tools
+if [ $? -eq 0 ]; then
+    log_install_report "Google Drive Tools" "SUCCESS" "Installed successfully"
+else
+    log_install_report "Google Drive Tools" "FAILED" "Failed to install Google Drive tools"
 fi
 
 # Docker Installation
@@ -449,7 +601,7 @@ fi
 
 echo -e "\n${YELLOW}📧 MSMTP Email Configuration Setup${NC}"
 echo -e "${BLUE}Choose how you want to configure MSMTP:${NC}"
-echo -e "  ${CYAN}1)${NC} Pull configuration from GitHub repository or Gist"
+echo -e "  ${CYAN}1)${NC} Pull configuration from GitHub/Google Drive"
 echo -e "  ${CYAN}2)${NC} Paste configuration directly"
 echo -e "  ${CYAN}3)${NC} Create template file (edit manually later)"
 echo -e "  ${CYAN}4)${NC} Skip MSMTP configuration"
@@ -459,42 +611,60 @@ while true; do
     read -p "Enter your choice (1-4): " msmtp_choice
     case $msmtp_choice in
         1)
-            echo -e "\n${YELLOW}📥 GitHub Repository/Gist Configuration${NC}"
-            read -p "Enter GitHub repository URL or Gist URL for MSMTP config: " github_repo
-            read -p "Enter file path in repository (e.g., .msmtprc or msmtprc) [default: .msmtprc]: " file_path
-            file_path=${file_path:-.msmtprc}
+            echo -e "\n${YELLOW}📥 Configuration from GitHub/Google Drive${NC}"
+            echo -e "${BLUE}Enter URL from one of these sources:${NC}"
+            echo -e "  ${GREEN}•${NC} GitHub repository file"
+            echo -e "  ${GREEN}•${NC} GitHub Gist"
+            echo -e "  ${GREEN}•${NC} Google Drive shared file"
+            echo ""
+            read -p "Enter URL: " config_url
+            read -p "Enter file path in repository (leave blank for direct files): " file_path
             
-            if [[ -n "$github_repo" ]]; then
+            if [[ -n "$config_url" ]]; then
                 success=false
                 
-                # Try gist download first
-                if [[ "$github_repo" == *"gist.github.com"* ]]; then
-                    if download_gist_file "$github_repo" ~/.msmtprc; then
+                if [[ "$config_url" == *"drive.google.com"* ]]; then
+                    # Google Drive URL
+                    if download_from_gdrive "$config_url" ~/.msmtprc; then
+                        chmod 600 ~/.msmtprc
+                        log_install_report "MSMTP Config (Google Drive)" "SUCCESS" "Downloaded from Google Drive"
+                        success=true
+                    fi
+                elif [[ "$config_url" == *"gist.github.com"* ]]; then
+                    # Gist URL
+                    if download_file "$config_url" ~/.msmtprc; then
                         chmod 600 ~/.msmtprc
                         log_install_report "MSMTP Config (Gist)" "SUCCESS" "Downloaded from gist"
                         success=true
                     fi
+                elif [[ "$config_url" == *"github.com"* ]]; then
+                    # GitHub repository file
+                    if [[ -n "$file_path" ]]; then
+                        # Convert GitHub URL to raw content URL
+                        raw_url=$(echo "$config_url" | sed 's|github.com|raw.githubusercontent.com|' | sed 's|/blob/||')
+                        if [[ ! "$raw_url" == *"/main/"* ]] && [[ ! "$raw_url" == *"/master/"* ]]; then
+                            raw_url="${raw_url}/main"
+                        fi
+                        full_url="${raw_url}/${file_path}"
+                        
+                        echo -e "Downloading from: ${CYAN}$full_url${NC}"
+                        if curl -o ~/.msmtprc "$full_url" >/dev/null 2>&1; then
+                            chmod 600 ~/.msmtprc
+                            log_install_report "MSMTP Config (GitHub)" "SUCCESS" "Downloaded from $config_url"
+                            success=true
+                        fi
+                    else
+                        # Try downloading directly
+                        if download_file "$config_url" ~/.msmtprc; then
+                            chmod 600 ~/.msmtprc
+                            log_install_report "MSMTP Config (GitHub)" "SUCCESS" "Downloaded from $config_url"
+                            success=true
+                        fi
+                    fi
                 fi
                 
-                # If gist failed or not a gist, try regular repo
                 if [[ "$success" == "false" ]]; then
-                    # Convert GitHub URL to raw content URL
-                    raw_url=$(echo "$github_repo" | sed 's|github.com|raw.githubusercontent.com|' | sed 's|/blob/||')
-                    if [[ ! "$raw_url" == *"/main/"* ]] && [[ ! "$raw_url" == *"/master/"* ]]; then
-                        raw_url="${raw_url}/main"
-                    fi
-                    full_url="${raw_url}/${file_path}"
-                    
-                    echo -e "Downloading from: ${CYAN}$full_url${NC}"
-                    if curl -o ~/.msmtprc "$full_url" >/dev/null 2>&1; then
-                        chmod 600 ~/.msmtprc
-                        log_install_report "MSMTP Config (GitHub)" "SUCCESS" "Downloaded from $github_repo"
-                        success=true
-                    fi
-                fi
-                
-                if [[ "$success" == "false" ]]; then
-                    echo -e "${RED}❌ Failed to download from GitHub/Gist${NC}"
+                    echo -e "${RED}❌ Failed to download configuration${NC}"
                     echo -e "Please check the URL and file path. Creating template instead..."
                     msmtp_choice=3
                     continue
@@ -608,7 +778,13 @@ echo -e "MSMTP configuration handled in previous step."
 # 2. Gensyn Crash Script (rl-swarm directory)
 # Ask for Crash Script URL if not already set
 if [[ -z "$CRASH_SCRIPT_URL" ]]; then
-  read -p "Enter Gensyn crash script repository URL or Gist URL (or press Enter to skip): " CRASH_SCRIPT_URL
+  echo -e "\n${YELLOW}📥 Gensyn Crash Script Setup${NC}"
+  echo -e "${BLUE}Enter URL from one of these sources:${NC}"
+  echo -e "  ${GREEN}•${NC} GitHub repository"
+  echo -e "  ${GREEN}•${NC} GitHub Gist"
+  echo -e "  ${GREEN}•${NC} Google Drive shared file"
+  echo ""
+  read -p "Enter URL (or press Enter to skip): " CRASH_SCRIPT_URL
   if [[ -z "$CRASH_SCRIPT_URL" ]]; then
     log_install_report "Gensyn Crash Script" "SKIP" "No URL provided"
   fi
@@ -619,7 +795,18 @@ if [[ -n "$CRASH_SCRIPT_URL" ]]; then
     
     # Use temporary directory to avoid conflicts
     temp_crash_dir=$(mktemp -d)
-    if clone_repository "$CRASH_SCRIPT_URL" "$temp_crash_dir"; then
+    if [[ "$CRASH_SCRIPT_URL" == *"drive.google.com"* ]]; then
+        # Handle Google Drive URL
+        if download_from_gdrive "$CRASH_SCRIPT_URL" "$temp_crash_dir/crash_script"; then
+            cp "$temp_crash_dir/crash_script" ~/rl-swarm/ 2>/dev/null || true
+            chmod +x ~/rl-swarm/crash_script 2>/dev/null || true
+            rm -rf "$temp_crash_dir" 2>/dev/null || true
+            log_install_report "Gensyn Crash Script (Google Drive)" "SUCCESS" "Downloaded and made executable"
+        else
+            rm -rf "$temp_crash_dir" 2>/dev/null || true
+            log_install_report "Gensyn Crash Script" "FAILED" "Failed to download from Google Drive"
+        fi
+    elif clone_repository "$CRASH_SCRIPT_URL" "$temp_crash_dir"; then
         cp -r "$temp_crash_dir"/* ~/rl-swarm/ 2>/dev/null || true
         rm -rf "$temp_crash_dir" 2>/dev/null || true
 
@@ -640,13 +827,29 @@ fi
 
 # 3. Swarm PEM File (rl-swarm directory)
 # Ask for PEM File URL separately
-read -p "Enter Swarm PEM file repository URL or Gist URL (or press Enter to skip): " PEM_FILE_URL
-    if [[ -n "$PEM_FILE_URL" ]]; then
+echo -e "\n${YELLOW}📥 Swarm PEM File Setup${NC}"
+echo -e "${BLUE}Enter URL from one of these sources:${NC}"
+echo -e "  ${GREEN}•${NC} GitHub repository"
+echo -e "  ${GREEN}•${NC} GitHub Gist"
+echo -e "  ${GREEN}•${NC} Google Drive shared file"
+echo ""
+read -p "Enter URL (or press Enter to skip): " PEM_FILE_URL
+if [[ -n "$PEM_FILE_URL" ]]; then
     mkdir -p ~/rl-swarm 2>/dev/null || true
     
     # Use temporary directory to avoid conflicts
     temp_pem_dir=$(mktemp -d)
-    if clone_repository "$PEM_FILE_URL" "$temp_pem_dir"; then
+    if [[ "$PEM_FILE_URL" == *"drive.google.com"* ]]; then
+        # Handle Google Drive URL
+        if download_from_gdrive "$PEM_FILE_URL" "$temp_pem_dir/pem_file"; then
+            cp "$temp_pem_dir/pem_file" ~/rl-swarm/ 2>/dev/null || true
+            rm -rf "$temp_pem_dir" 2>/dev/null || true
+            log_install_report "Swarm PEM File (Google Drive)" "SUCCESS" "Downloaded to ~/rl-swarm/"
+        else
+            rm -rf "$temp_pem_dir" 2>/dev/null || true
+            log_install_report "Swarm PEM File" "FAILED" "Failed to download from Google Drive"
+        fi
+    elif clone_repository "$PEM_FILE_URL" "$temp_pem_dir"; then
         # Copy files from temp directory to rl-swarm directory
         cp -r "$temp_pem_dir"/* ~/rl-swarm/ 2>/dev/null || true
         rm -rf "$temp_pem_dir" 2>/dev/null || true
