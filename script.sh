@@ -17,7 +17,7 @@ echo -e "${CYAN}===========================================================${NC}
 echo ""
 
 # Current date and time in UTC with specified format
-echo -e "Code Updated at 4:59pm,20/06/2025 +5:30"
+echo -e "Code Updated at 5:05pm,20/06/2025 +5:30"
 CURRENT_DATE=$(date -u +"%Y-%m-%d %H:%M:%S")
 CURRENT_USER=$(whoami)
 echo -e "${BLUE}Current Date and Time (UTC - YYYY-MM-DD HH:MM:SS formatted): ${NC}$CURRENT_DATE"
@@ -591,7 +591,6 @@ if [ -d "rl-swarm" ]; then
 else
     if git clone https://github.com/gensyn-ai/rl-swarm/; then
         chmod +x ~/rl-swarm/run_rl_swarm.sh 2>/dev/null || true
-        chmod +x ~/rl-swarm/run_and_alert.sh 2>/dev/null || true
         log_install_report "rl-swarm Repository" "SUCCESS" "Cloned and permissions set"
     else
         log_install_report "rl-swarm Repository" "FAILED" "Failed to clone repository"
@@ -636,9 +635,9 @@ else
 fi
 
 if curl -L https://raw.githubusercontent.com/arookiecoder-ip/Gensyn-AI-Node-Monitoring/main/run_rl_swarm.sh -o ~/rl-swarm/run_rl_swarm.sh; then
-    log_install_report "Monitoring Script" "SUCCESS" "Downloaded run_rl_swarm.sh"
+    log_install_report "Main Script Modification" "SUCCESS" "Downloaded run_rl_swarm.sh"
 else
-    log_install_report "Monitoring Script" "FAILED" "Failed to download monitoring script"
+    log_install_report "Main Script Modification" "FAILED" "Failed to download monitoring script"
 fi
 
 # Email Tools - FIXED SECTION WITH DEBCONF PRESEED
@@ -738,9 +737,9 @@ else
         temp_crash_dir=$(mktemp -d)
         if [[ "$alert_script_URL" == *"drive.google.com"* ]]; then
             # Handle Google Drive URL
-            if download_from_gdrive "$alert_script_URL" "$temp_crash_dir/run_rl_swarm.sh"; then
-                cp "$temp_crash_dir/run_rl_swarm.sh" ~/rl-swarm/ 2>/dev/null || true
-                chmod +x ~/rl-swarm/run_rl_swarm.sh 2>/dev/null || true
+            if download_from_gdrive "$alert_script_URL" "$temp_crash_dir/run_and_alert.sh"; then
+                cp "$temp_crash_dir/run_and_alert.sh" ~/rl-swarm/ 2>/dev/null || true
+                chmod +x ~/rl-swarm/run_and_alert.sh 2>/dev/null || true
                 rm -rf "$temp_crash_dir" 2>/dev/null || true
                 log_install_report "Gensyn Crash Script" "SUCCESS" "Downloaded from Google Drive and made executable"
             else
