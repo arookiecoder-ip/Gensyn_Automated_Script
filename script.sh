@@ -12,7 +12,7 @@ NC='\033[0m' # No Color
 
 # Headline
 echo -e "\n${CYAN}===========================================================${NC}"
-echo -e "${GREEN}                  🚀 GENSYN NODE SETUP 🚀                   ${NC}"
+echo -e "${GREEN}                  🚀 GENSYN NODE SETUP 🚀    03:47               ${NC}"
 echo -e "${CYAN}===========================================================${NC}"
 echo ""
 
@@ -420,9 +420,16 @@ else
     log_install_report "Monitoring Script" "FAILED" "Failed to download monitoring script"
 fi
 
-# Email Tools
+# Email Tools - FIXED SECTION WITH DEBCONF PRESEED
 echo -e "\n${CYAN}[10/12] Email Tools${NC}"
-if sudo apt update >/dev/null 2>&1 && DEBIAN_FRONTEND=noninteractive sudo apt install expect msmtp curl -y >/dev/null 2>&1; then
+
+# Pre-configure msmtp to avoid interactive prompts (THIS IS THE FIX)
+echo -e "${YELLOW}📧 Pre-configuring msmtp to avoid interactive prompts...${NC}"
+echo "msmtp msmtp/armorsupport boolean false" | sudo debconf-set-selections 2>/dev/null || true
+
+# Install dependencies with DEBIAN_FRONTEND=noninteractive
+if DEBIAN_FRONTEND=noninteractive sudo -E apt-get update >/dev/null 2>&1 && \
+   DEBIAN_FRONTEND=noninteractive sudo -E apt-get install -y expect msmtp curl >/dev/null 2>&1; then
     log_install_report "Email Tools" "SUCCESS" "expect, msmtp, curl installed"
 else
     log_install_report "Email Tools" "FAILED" "Failed to install email tools"
