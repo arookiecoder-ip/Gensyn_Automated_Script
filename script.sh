@@ -12,7 +12,7 @@ NC='\033[0m' # No Color
 
 # Headline
 echo -e "\n${CYAN}===========================================================${NC}"
-echo -e "${GREEN}                  🚀 GENSYN NODE SETUP 🚀    03:47               ${NC}"
+echo -e "${GREEN}                  🚀 GENSYN NODE SETUP 🚀                   ${NC}"
 echo -e "${CYAN}===========================================================${NC}"
 echo ""
 
