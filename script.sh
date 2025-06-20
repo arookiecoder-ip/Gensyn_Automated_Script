@@ -12,14 +12,14 @@ NC='\033[0m' # No Color
 
 # Headline
 echo -e "\n${CYAN}===========================================================${NC}"
-echo -e "${GREEN}                  🚀 GENSYN NODE SETUP 🚀  342  5               ${NC}"
+echo -e "${GREEN}                  🚀 GENSYN NODE SETUP 🚀  342                 ${NC}"
 echo -e "${CYAN}===========================================================${NC}"
 echo ""
 
-# Current date and time in UTC
+# Current date and time in UTC with specified format
 CURRENT_DATE=$(date -u +"%Y-%m-%d %H:%M:%S")
 CURRENT_USER=$(whoami)
-echo -e "${BLUE}Current Date and Time (UTC): ${NC}$CURRENT_DATE"
+echo -e "${BLUE}Current Date and Time (UTC - YYYY-MM-DD HH:MM:SS formatted): ${NC}$CURRENT_DATE"
 echo -e "${BLUE}Current User's Login: ${NC}$CURRENT_USER"
 echo ""
 
@@ -54,7 +54,6 @@ log_install_report() {
 install_gdrive_tools() {
     echo -e "\n${CYAN}Installing Google Drive CLI tools...${NC}"
     local rclone_success=false
-    local gdown_success=false
     
     # Install rclone (supports Google Drive)
     if command_exists rclone; then
@@ -72,47 +71,56 @@ install_gdrive_tools() {
         fi
     fi
     
-    # Install gdown (Python tool for Google Drive) with better error handling
-    if pip3 show gdown >/dev/null 2>&1; then
-        GDOWN_VERSION=$(pip3 show gdown | grep "Version" | awk '{print $2}')
-        log_install_report "gdown" "SKIP" "Already installed - v$GDOWN_VERSION"
-        gdown_success=true
+    # Try to install gdown using different approaches
+    echo -e "${YELLOW}Installing gdown...${NC}"
+    
+    # Method 0: Check if already installed
+    if command_exists gdown; then
+        echo -e "${GREEN}gdown is already installed${NC}"
+        log_install_report "gdown" "SKIP" "Already installed"
+    # Method 1: Try apt first (for Debian/Ubuntu systems)
+    elif sudo apt-get install -y python3-gdown 2>/dev/null; then
+        echo -e "${GREEN}Installed gdown via apt${NC}"
+        log_install_report "gdown" "SUCCESS" "Installed via apt"
+    # Method 2: Try using a virtual environment
     else
-        echo -e "${YELLOW}Installing gdown...${NC}"
+        echo -e "${YELLOW}Attempting to install gdown in a virtual environment...${NC}"
         
-        # Try multiple installation methods for gdown
-        # Method 1: Standard pip install
-        if pip3 install gdown --no-cache-dir; then
-            GDOWN_VERSION=$(pip3 show gdown | grep "Version" | awk '{print $2}')
-            log_install_report "gdown" "SUCCESS" "v$GDOWN_VERSION"
-            gdown_success=true
-        # Method 2: Install with user flag
-        elif pip3 install --user gdown; then
-            GDOWN_VERSION=$(pip3 show gdown | grep "Version" | awk '{print $2}')
-            log_install_report "gdown" "SUCCESS" "v$GDOWN_VERSION (installed with --user flag)"
-            gdown_success=true
-        # Method 3: Install with sudo
-        elif sudo pip3 install gdown; then
-            GDOWN_VERSION=$(pip3 show gdown | grep "Version" | awk '{print $2}')
-            log_install_report "gdown" "SUCCESS" "v$GDOWN_VERSION (installed with sudo)"
-            gdown_success=true
+        # Make sure python3-venv is installed
+        sudo apt-get install -y python3-venv python3-full
+        
+        # Create virtual environment in ~/.gdown_venv
+        python3 -m venv ~/.gdown_venv
+        
+        # Install gdown in the virtual environment
+        if ~/.gdown_venv/bin/pip install gdown; then
+            echo -e "${GREEN}Installed gdown in virtual environment${NC}"
+            
+            # Create wrapper script in /usr/local/bin
+            cat > /tmp/gdown_wrapper.sh << 'EOF'
+#!/bin/bash
+~/.gdown_venv/bin/gdown "$@"
+EOF
+            sudo mv /tmp/gdown_wrapper.sh /usr/local/bin/gdown
+            sudo chmod +x /usr/local/bin/gdown
+            
+            log_install_report "gdown" "SUCCESS" "Installed in virtual environment with wrapper"
         else
-            log_install_report "gdown" "FAILED" "All installation methods failed"
+            log_install_report "gdown" "FAILED" "Failed to install in virtual environment"
         fi
     fi
     
-    # Return overall success status
-    if $rclone_success; then
-        return 0  # At least rclone is installed, which is enough for basic functionality
-    else
-        return 1  # Critical failure - neither tool installed
-    fi
+    return 0  # Continue even if gdown fails, as rclone is sufficient
 }
 
 # Function to download file from Google Drive using available tools
 download_from_gdrive() {
     local drive_url="$1"
     local destination="$2"
+    local destination_dir=$(dirname "$destination")
+    
+    # Ensure destination directory exists
+    mkdir -p "$destination_dir" 2>/dev/null || true
     
     # Extract file ID from Google Drive URL
     local file_id=""
@@ -138,7 +146,7 @@ download_from_gdrive() {
     # Try multiple download methods
     local success=false
     
-    # Method 1: gdown (if available)
+    # Method 1: gdown (if available in PATH or via our wrapper)
     if command_exists gdown; then
         echo -e "${CYAN}Trying download with gdown...${NC}"
         if gdown --id "$file_id" -O "$destination"; then
@@ -147,21 +155,7 @@ download_from_gdrive() {
         fi
     fi
     
-    # Method 2: rclone (if available and configured)
-    if [[ "$success" == "false" ]] && command_exists rclone; then
-        echo -e "${CYAN}Trying download with rclone...${NC}"
-        # Check if there's a Google Drive remote configured
-        if rclone listremotes | grep -q "google:"; then
-            if rclone copy "google:$file_id" "$destination"; then
-                success=true
-                echo -e "${GREEN}Download successful with rclone${NC}"
-            fi
-        else
-            echo -e "${YELLOW}Rclone installed but Google Drive remote not configured${NC}"
-        fi
-    fi
-    
-    # Method 3: wget with direct link
+    # Method 2: wget with direct link
     if [[ "$success" == "false" ]]; then
         echo -e "${CYAN}Trying download with wget...${NC}"
         local confirm_param=""
@@ -175,7 +169,7 @@ download_from_gdrive() {
         fi
     fi
     
-    # Method 4: curl with direct link
+    # Method 3: curl with direct link
     if [[ "$success" == "false" ]]; then
         echo -e "${CYAN}Trying download with curl...${NC}"
         local direct_url="https://drive.google.com/uc?export=download&id=$file_id"
@@ -432,63 +426,28 @@ download_file() {
                 return 1
             fi
         fi
-    else
-        echo -e "${RED}URL format not recognized${NC}"
-        return 1
-    fi
-    
-    return 1
-}
-
-# Function to verify installation
-verify_installation() {
-    local component="$1"
-    local command_to_check="$2"
-    local additional_check="$3"
-    
-    if command_exists "$command_to_check"; then
-        if [[ -n "$additional_check" ]]; then
-            if eval "$additional_check" >/dev/null 2>&1; then
-                INSTALLED_COMPONENTS+=("$component")
-                return 0
-            else
-                FAILED_COMPONENTS+=("$component")
-                return 1
-            fi
-        else
-            INSTALLED_COMPONENTS+=("$component")
+    elif [[ "$url" =~ ^https?:// ]]; then
+        # Direct URL download (not GitHub or Google Drive)
+        echo -e "${YELLOW}Downloading from direct URL${NC}"
+        if curl -s -f "$url" -o "$destination"; then
+            echo -e "${GREEN}Downloaded successfully from URL${NC}"
             return 0
+        else
+            echo -e "${RED}Failed to download from URL${NC}"
+            return 1
         fi
     else
-        FAILED_COMPONENTS+=("$component")
+        echo -e "${RED}Invalid URL format: ${NC}$url"
         return 1
     fi
 }
 
-# Function to check service status
-check_service() {
-    local service_name="$1"
-    if systemctl is-active --quiet "$service_name" && systemctl is-enabled --quiet "$service_name"; then
-        return 0
-    else
+# Function to validate URL
+validate_url() {
+    local url="$1"
+    if [[ -z "$url" ]]; then
         return 1
-    fi
-}
-
-# Function to check file exists
-check_file() {
-    local file_path="$1"
-    if [[ -f "$file_path" ]]; then
-        return 0
-    else
-        return 1
-    fi
-}
-
-# Function to check directory exists
-check_directory() {
-    local dir_path="$1"
-    if [[ -d "$dir_path" ]]; then
+    elif [[ "$url" =~ ^https?:// ]]; then
         return 0
     else
         return 1
@@ -697,186 +656,60 @@ else
 fi
 
 # =============================================================================
-# INTERACTIVE MSMTP CONFIGURATION
+# MSMTP CONFIGURATION - SIMPLIFIED TO LINK INPUT ONLY
 # =============================================================================
 
 echo -e "\n${CYAN}[10.1/12] MSMTP Email Configuration${NC}"
 echo -e "${CYAN}===========================================================${NC}"
 
-# Always ask for MSMTP configuration (overwrite if exists)
+# Always warn if msmtprc exists
 if [ -f ~/.msmtprc ]; then
     echo -e "${YELLOW}⚠️  Existing ~/.msmtprc will be overwritten${NC}"
 fi
 
 echo -e "\n${YELLOW}📧 MSMTP Email Configuration Setup${NC}"
-echo -e "${BLUE}Choose how you want to configure MSMTP:${NC}"
-echo -e "  ${CYAN}1)${NC} Pull configuration from GitHub/Google Drive"
-echo -e "  ${CYAN}2)${NC} Paste configuration directly"
-echo -e "  ${CYAN}3)${NC} Create template file (edit manually later)"
-echo -e "  ${CYAN}4)${NC} Skip MSMTP configuration"
+echo -e "${BLUE}Enter the URL for your MSMTP configuration:${NC}"
+echo -e "- GitHub repository"
+echo -e "- GitHub Gist"
+echo -e "- Google Drive shared file"
+echo -e "(Press Enter to skip)"
 echo ""
 
-while true; do
-    read -p "Enter your choice (1-4): " msmtp_choice
-    case $msmtp_choice in
-        1)
-            echo -e "\n${YELLOW}📥 Configuration from GitHub/Google Drive${NC}"
-            echo -e "${BLUE}Enter URL from one of these sources:${NC}"
-            echo -e "  ${GREEN}•${NC} GitHub repository file"
-            echo -e "  ${GREEN}•${NC} GitHub Gist"
-            echo -e "  ${GREEN}•${NC} Google Drive shared file"
-            echo ""
-            read -p "Enter URL: " config_url
-            read -p "Enter file path in repository (leave blank for direct files): " file_path
-            
-            if [[ -n "$config_url" ]]; then
-                success=false
-                
-                if [[ "$config_url" == *"drive.google.com"* ]]; then
-                    # Google Drive URL
-                    if download_from_gdrive "$config_url" ~/.msmtprc; then
-                        chmod 600 ~/.msmtprc
-                        log_install_report "MSMTP Config (Google Drive)" "SUCCESS" "Downloaded from Google Drive"
-                        success=true
-                    fi
-                elif [[ "$config_url" == *"gist.github.com"* ]]; then
-                    # Gist URL
-                    if download_file "$config_url" ~/.msmtprc; then
-                        chmod 600 ~/.msmtprc
-                        log_install_report "MSMTP Config (Gist)" "SUCCESS" "Downloaded from gist"
-                        success=true
-                    fi
-                elif [[ "$config_url" == *"github.com"* ]]; then
-                    # GitHub repository file
-                    if [[ -n "$file_path" ]]; then
-                        # Convert GitHub URL to raw content URL
-                        raw_url=$(echo "$config_url" | sed 's|github.com|raw.githubusercontent.com|' | sed 's|/blob/||')
-                        if [[ ! "$raw_url" == *"/main/"* ]] && [[ ! "$raw_url" == *"/master/"* ]]; then
-                            raw_url="${raw_url}/main"
-                        fi
-                        full_url="${raw_url}/${file_path}"
-                        
-                        echo -e "Downloading from: ${CYAN}$full_url${NC}"
-                        if curl -o ~/.msmtprc "$full_url"; then
-                            chmod 600 ~/.msmtprc
-                            log_install_report "MSMTP Config (GitHub)" "SUCCESS" "Downloaded from $config_url"
-                            success=true
-                        fi
-                    else
-                        # Try downloading directly
-                        if download_file "$config_url" ~/.msmtprc; then
-                            chmod 600 ~/.msmtprc
-                            log_install_report "MSMTP Config (GitHub)" "SUCCESS" "Downloaded from $config_url"
-                            success=true
-                        fi
-                    fi
-                fi
-                
-                if [[ "$success" == "false" ]]; then
-                    echo -e "${RED}❌ Failed to download configuration${NC}"
-                    echo -e "Please check the URL and file path. Creating template instead..."
-                    msmtp_choice=3
-                    continue
-                fi
-            else
-                echo -e "${RED}❌ Invalid input. Creating template instead...${NC}"
-                msmtp_choice=3
-                continue
-            fi
-            break
-            ;;
-        2)
-            echo -e "\n${YELLOW}📝 Direct Configuration Input${NC}"
-            echo -e "${BLUE}Please paste your MSMTP configuration below.${NC}"
-            echo -e "${BLUE}Press Ctrl+D on a new line when finished:${NC}"
-            echo ""
-            
-            # Read multi-line input
-            config_content=""
-            while IFS= read -r line; do
-                config_content+="$line"$'\n'
-            done
-            
-            if [[ -n "$config_content" ]]; then
-                echo "$config_content" > ~/.msmtprc
+read -p "Enter URL: " config_url
+if [[ -z "$config_url" ]]; then
+    log_install_report "MSMTP Config" "SKIP" "No URL provided"
+else
+    # Validate URL format
+    if ! [[ "$config_url" =~ ^https?:// ]]; then
+        echo -e "${RED}❌ Invalid URL format.${NC}"
+        log_install_report "MSMTP Config" "FAILED" "Invalid URL format"
+    else
+        # Download based on URL type
+        if [[ "$config_url" == *"drive.google.com"* ]]; then
+            if download_from_gdrive "$config_url" ~/.msmtprc; then
                 chmod 600 ~/.msmtprc
-                log_install_report "MSMTP Config (Pasted)" "SUCCESS" "Configuration saved from user input"
+                log_install_report "MSMTP Config" "SUCCESS" "Downloaded from Google Drive"
             else
-                echo -e "${RED}❌ No configuration provided. Creating template instead...${NC}"
-                msmtp_choice=3
-                continue
+                log_install_report "MSMTP Config" "FAILED" "Failed to download from Google Drive"
             fi
-            break
-            ;;
-        3)
-            echo -e "\n${YELLOW}📄 Creating Template Configuration${NC}"
-            cat > ~/.msmtprc << 'EOF'
-# MSMTP Configuration File
-# Created on: 2025-06-20 10:50:35 UTC
-# User: arookiecoder-ip
-# 
-# Edit this file with your email settings
-# For Gmail, you'll need an "App Password" instead of your regular password
-# Enable 2FA first, then generate an app password at: https://myaccount.google.com/apppasswords
-
-defaults
-auth           on
-tls            on
-tls_trust_file /etc/ssl/certs/ca-certificates.crt
-logfile        ~/.msmtp.log
-
-# Gmail Configuration
-account        gmail
-host           smtp.gmail.com
-port           587
-from           your-email@gmail.com
-user           your-email@gmail.com
-password       your-app-password
-
-# Outlook/Hotmail Configuration (alternative)
-account        outlook
-host           smtp-mail.outlook.com
-port           587
-from           your-email@outlook.com
-user           your-email@outlook.com
-password       your-password
-
-# Yahoo Configuration (alternative)
-account        yahoo
-host           smtp.mail.yahoo.com
-port           587
-from           your-email@yahoo.com
-user           your-email@yahoo.com
-password       your-app-password
-
-# Custom SMTP Configuration (alternative)
-account        custom
-host           smtp.your-domain.com
-port           587
-from           your-email@your-domain.com
-user           your-email@your-domain.com
-password       your-password
-
-# Set default account (change to gmail, outlook, yahoo, or custom)
-account default : gmail
-
-# Uncomment and modify for debugging
-# logfile ~/.msmtp.log
-EOF
-            chmod 600 ~/.msmtprc
-            log_install_report "MSMTP Config (Template)" "SUCCESS" "Template created - requires manual editing"
-            echo -e "${YELLOW}⚠️  Please edit ~/.msmtprc with your actual email settings${NC}"
-            break
-            ;;
-        4)
-            log_install_report "MSMTP Config" "SKIP" "Configuration skipped by user"
-            break
-            ;;
-        *)
-            echo -e "${RED}❌ Invalid choice. Please enter 1, 2, 3, or 4.${NC}"
-            ;;
-    esac
-done
+        elif [[ "$config_url" == *"gist.github.com"* ]]; then
+            if download_file "$config_url" ~/.msmtprc; then
+                chmod 600 ~/.msmtprc
+                log_install_report "MSMTP Config" "SUCCESS" "Downloaded from gist"
+            else
+                log_install_report "MSMTP Config" "FAILED" "Failed to download from gist"
+            fi
+        else
+            # Try as a GitHub file or direct URL
+            if download_file "$config_url" ~/.msmtprc; then
+                chmod 600 ~/.msmtprc
+                log_install_report "MSMTP Config" "SUCCESS" "Downloaded configuration"
+            else
+                log_install_report "MSMTP Config" "FAILED" "Failed to download configuration"
+            fi
+        fi
+    fi
+fi
 
 # Additional Files Setup
 echo -e "\n${CYAN}[11/12] Additional Files Setup${NC}"
@@ -885,90 +718,90 @@ echo -e "\n${CYAN}[11/12] Additional Files Setup${NC}"
 echo -e "MSMTP configuration handled in previous step."
 
 # 2. Gensyn Crash Script (rl-swarm directory)
-# Ask for Crash Script URL if not already set
+echo -e "\n${YELLOW}📥 Gensyn Crash Script Setup${NC}"
+echo -e "${BLUE}Enter the URL for Gensyn crash script:${NC}"
+echo -e "(Press Enter to skip)"
+echo ""
+
+read -p "Enter URL: " CRASH_SCRIPT_URL
 if [[ -z "$CRASH_SCRIPT_URL" ]]; then
-  echo -e "\n${YELLOW}📥 Gensyn Crash Script Setup${NC}"
-  echo -e "${BLUE}Enter URL from one of these sources:${NC}"
-  echo -e "  ${GREEN}•${NC} GitHub repository"
-  echo -e "  ${GREEN}•${NC} GitHub Gist"
-  echo -e "  ${GREEN}•${NC} Google Drive shared file"
-  echo ""
-  read -p "Enter URL (or press Enter to skip): " CRASH_SCRIPT_URL
-  if [[ -z "$CRASH_SCRIPT_URL" ]]; then
     log_install_report "Gensyn Crash Script" "SKIP" "No URL provided"
-  fi
-fi
-
-if [[ -n "$CRASH_SCRIPT_URL" ]]; then
-    mkdir -p ~/rl-swarm 2>/dev/null || true
-    
-    # Use temporary directory to avoid conflicts
-    temp_crash_dir=$(mktemp -d)
-    if [[ "$CRASH_SCRIPT_URL" == *"drive.google.com"* ]]; then
-        # Handle Google Drive URL
-        if download_from_gdrive "$CRASH_SCRIPT_URL" "$temp_crash_dir/crash_script"; then
-            cp "$temp_crash_dir/crash_script" ~/rl-swarm/ 2>/dev/null || true
-            chmod +x ~/rl-swarm/crash_script 2>/dev/null || true
-            rm -rf "$temp_crash_dir" 2>/dev/null || true
-            log_install_report "Gensyn Crash Script (Google Drive)" "SUCCESS" "Downloaded and made executable"
-        else
-            rm -rf "$temp_crash_dir" 2>/dev/null || true
-            log_install_report "Gensyn Crash Script" "FAILED" "Failed to download from Google Drive"
-        fi
-    elif clone_repository "$CRASH_SCRIPT_URL" "$temp_crash_dir"; then
-        cp -r "$temp_crash_dir"/* ~/rl-swarm/ 2>/dev/null || true
-        rm -rf "$temp_crash_dir" 2>/dev/null || true
-
-        # Check for any .sh files and make them executable
-        if find ~/rl-swarm/ -maxdepth 1 -type f -name "*.sh" | grep -q .; then
-            find ~/rl-swarm/ -maxdepth 1 -type f -name "*.sh" -exec chmod +x {} \;
-            log_install_report "Gensyn Crash Script" "SUCCESS" "Downloaded and script(s) made executable"
-        else
-            log_install_report "Gensyn Crash Script" "SUCCESS" "Downloaded (no .sh files to make executable)"
-        fi
-    else
-        rm -rf "$temp_crash_dir" 2>/dev/null || true
-        log_install_report "Gensyn Crash Script" "FAILED" "Failed to clone crash script repository"
-    fi
 else
-    log_install_report "Gensyn Crash Script" "SKIP" "No URL provided"
+    mkdir -p ~/rl-swarm 2>/dev/null || true
+
+    if ! [[ "$CRASH_SCRIPT_URL" =~ ^https?:// ]]; then
+        echo -e "${RED}❌ Invalid URL format.${NC}"
+        log_install_report "Gensyn Crash Script" "FAILED" "Invalid URL format"
+    else
+        # Use temporary directory to avoid conflicts
+        temp_crash_dir=$(mktemp -d)
+        if [[ "$CRASH_SCRIPT_URL" == *"drive.google.com"* ]]; then
+            # Handle Google Drive URL
+            if download_from_gdrive "$CRASH_SCRIPT_URL" "$temp_crash_dir/crash_script"; then
+                cp "$temp_crash_dir/crash_script" ~/rl-swarm/ 2>/dev/null || true
+                chmod +x ~/rl-swarm/crash_script 2>/dev/null || true
+                rm -rf "$temp_crash_dir" 2>/dev/null || true
+                log_install_report "Gensyn Crash Script" "SUCCESS" "Downloaded from Google Drive and made executable"
+            else
+                rm -rf "$temp_crash_dir" 2>/dev/null || true
+                log_install_report "Gensyn Crash Script" "FAILED" "Failed to download from Google Drive"
+            fi
+        elif clone_repository "$CRASH_SCRIPT_URL" "$temp_crash_dir"; then
+            cp -r "$temp_crash_dir"/* ~/rl-swarm/ 2>/dev/null || true
+            rm -rf "$temp_crash_dir" 2>/dev/null || true
+
+            # Check for any .sh files and make them executable
+            if find ~/rl-swarm/ -maxdepth 1 -type f -name "*.sh" | grep -q .; then
+                find ~/rl-swarm/ -maxdepth 1 -type f -name "*.sh" -exec chmod +x {} \;
+                log_install_report "Gensyn Crash Script" "SUCCESS" "Downloaded and script(s) made executable"
+            else
+                log_install_report "Gensyn Crash Script" "SUCCESS" "Downloaded (no .sh files to make executable)"
+            fi
+        else
+            rm -rf "$temp_crash_dir" 2>/dev/null || true
+            log_install_report "Gensyn Crash Script" "FAILED" "Failed to clone/download script"
+        fi
+    fi
 fi
 
 # 3. Swarm PEM File (rl-swarm directory)
-# Ask for PEM File URL separately
 echo -e "\n${YELLOW}📥 Swarm PEM File Setup${NC}"
-echo -e "${BLUE}Enter URL from one of these sources:${NC}"
-echo -e "  ${GREEN}•${NC} GitHub repository"
-echo -e "  ${GREEN}•${NC} GitHub Gist"
-echo -e "  ${GREEN}•${NC} Google Drive shared file"
+echo -e "${BLUE}Enter the URL for Swarm PEM file:${NC}"
+echo -e "(Press Enter to skip)"
 echo ""
-read -p "Enter URL (or press Enter to skip): " PEM_FILE_URL
-if [[ -n "$PEM_FILE_URL" ]]; then
+
+read -p "Enter URL: " PEM_FILE_URL
+if [[ -z "$PEM_FILE_URL" ]]; then
+    log_install_report "Swarm PEM File" "SKIP" "No URL provided"
+else
     mkdir -p ~/rl-swarm 2>/dev/null || true
     
-    # Use temporary directory to avoid conflicts
-    temp_pem_dir=$(mktemp -d)
-    if [[ "$PEM_FILE_URL" == *"drive.google.com"* ]]; then
-        # Handle Google Drive URL
-        if download_from_gdrive "$PEM_FILE_URL" "$temp_pem_dir/pem_file"; then
-            cp "$temp_pem_dir/pem_file" ~/rl-swarm/ 2>/dev/null || true
+    if ! [[ "$PEM_FILE_URL" =~ ^https?:// ]]; then
+        echo -e "${RED}❌ Invalid URL format.${NC}"
+        log_install_report "Swarm PEM File" "FAILED" "Invalid URL format"
+    else
+        # Use temporary directory to avoid conflicts
+        temp_pem_dir=$(mktemp -d)
+        if [[ "$PEM_FILE_URL" == *"drive.google.com"* ]]; then
+            # Handle Google Drive URL
+            if download_from_gdrive "$PEM_FILE_URL" "$temp_pem_dir/pem_file"; then
+                cp "$temp_pem_dir/pem_file" ~/rl-swarm/ 2>/dev/null || true
+                rm -rf "$temp_pem_dir" 2>/dev/null || true
+                log_install_report "Swarm PEM File" "SUCCESS" "Downloaded from Google Drive to ~/rl-swarm/"
+            else
+                rm -rf "$temp_pem_dir" 2>/dev/null || true
+                log_install_report "Swarm PEM File" "FAILED" "Failed to download from Google Drive"
+            fi
+        elif clone_repository "$PEM_FILE_URL" "$temp_pem_dir"; then
+            # Copy files from temp directory to rl-swarm directory
+            cp -r "$temp_pem_dir"/* ~/rl-swarm/ 2>/dev/null || true
             rm -rf "$temp_pem_dir" 2>/dev/null || true
-            log_install_report "Swarm PEM File (Google Drive)" "SUCCESS" "Downloaded to ~/rl-swarm/"
+            log_install_report "Swarm PEM File" "SUCCESS" "Downloaded/Updated to ~/rl-swarm/"
         else
             rm -rf "$temp_pem_dir" 2>/dev/null || true
-            log_install_report "Swarm PEM File" "FAILED" "Failed to download from Google Drive"
+            log_install_report "Swarm PEM File" "FAILED" "Failed to clone/download PEM file"
         fi
-    elif clone_repository "$PEM_FILE_URL" "$temp_pem_dir"; then
-        # Copy files from temp directory to rl-swarm directory
-        cp -r "$temp_pem_dir"/* ~/rl-swarm/ 2>/dev/null || true
-        rm -rf "$temp_pem_dir" 2>/dev/null || true
-        log_install_report "Swarm PEM File" "SUCCESS" "Downloaded/Updated to ~/rl-swarm/"
-    else
-        rm -rf "$temp_pem_dir" 2>/dev/null || true
-        log_install_report "Swarm PEM File" "FAILED" "Failed to clone PEM file repository"
     fi
-else
-    log_install_report "Swarm PEM File" "SKIP" "No URL provided"
 fi
 
 echo -e "\n${GREEN}🚀 Your Gensyn Node setup is complete!${NC}"
