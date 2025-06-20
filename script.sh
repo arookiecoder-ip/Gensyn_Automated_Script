@@ -12,8 +12,15 @@ NC='\033[0m' # No Color
 
 # Headline
 echo -e "\n${CYAN}===========================================================${NC}"
-echo -e "${GREEN}                  🚀 GENSYN NODE SETUP 🚀  342                 ${NC}"
+echo -e "${GREEN}                  🚀 GENSYN NODE SETUP 🚀  342  5               ${NC}"
 echo -e "${CYAN}===========================================================${NC}"
+echo ""
+
+# Current date and time in UTC
+CURRENT_DATE=$(date -u +"%Y-%m-%d %H:%M:%S")
+CURRENT_USER=$(whoami)
+echo -e "${BLUE}Current Date and Time (UTC): ${NC}$CURRENT_DATE"
+echo -e "${BLUE}Current User's Login: ${NC}$CURRENT_USER"
 echo ""
 
 # Ask for confirmation to continue
@@ -43,42 +50,66 @@ log_install_report() {
     fi
 }
 
-# Function to install Google Drive CLI tools
+# Function to install Google Drive CLI tools with better error handling
 install_gdrive_tools() {
     echo -e "\n${CYAN}Installing Google Drive CLI tools...${NC}"
+    local rclone_success=false
+    local gdown_success=false
     
     # Install rclone (supports Google Drive)
     if command_exists rclone; then
         RCLONE_VERSION=$(rclone version | head -n 1)
         log_install_report "rclone" "SKIP" "Already installed - $RCLONE_VERSION"
+        rclone_success=true
     else
-        if curl https://rclone.org/install.sh | sudo bash >/dev/null 2>&1; then
+        echo -e "${YELLOW}Installing rclone...${NC}"
+        if curl https://rclone.org/install.sh | sudo bash; then
             RCLONE_VERSION=$(rclone version | head -n 1)
             log_install_report "rclone" "SUCCESS" "$RCLONE_VERSION"
+            rclone_success=true
         else
             log_install_report "rclone" "FAILED" "Failed to install rclone"
-            return 1
         fi
     fi
     
-    # Install gdown (Python tool for Google Drive)
+    # Install gdown (Python tool for Google Drive) with better error handling
     if pip3 show gdown >/dev/null 2>&1; then
         GDOWN_VERSION=$(pip3 show gdown | grep "Version" | awk '{print $2}')
         log_install_report "gdown" "SKIP" "Already installed - v$GDOWN_VERSION"
+        gdown_success=true
     else
-        if pip3 install gdown >/dev/null 2>&1; then
+        echo -e "${YELLOW}Installing gdown...${NC}"
+        
+        # Try multiple installation methods for gdown
+        # Method 1: Standard pip install
+        if pip3 install gdown --no-cache-dir; then
             GDOWN_VERSION=$(pip3 show gdown | grep "Version" | awk '{print $2}')
             log_install_report "gdown" "SUCCESS" "v$GDOWN_VERSION"
+            gdown_success=true
+        # Method 2: Install with user flag
+        elif pip3 install --user gdown; then
+            GDOWN_VERSION=$(pip3 show gdown | grep "Version" | awk '{print $2}')
+            log_install_report "gdown" "SUCCESS" "v$GDOWN_VERSION (installed with --user flag)"
+            gdown_success=true
+        # Method 3: Install with sudo
+        elif sudo pip3 install gdown; then
+            GDOWN_VERSION=$(pip3 show gdown | grep "Version" | awk '{print $2}')
+            log_install_report "gdown" "SUCCESS" "v$GDOWN_VERSION (installed with sudo)"
+            gdown_success=true
         else
-            log_install_report "gdown" "FAILED" "Failed to install gdown"
-            return 1
+            log_install_report "gdown" "FAILED" "All installation methods failed"
         fi
     fi
     
-    return 0
+    # Return overall success status
+    if $rclone_success; then
+        return 0  # At least rclone is installed, which is enough for basic functionality
+    else
+        return 1  # Critical failure - neither tool installed
+    fi
 }
 
-# Function to download file from Google Drive
+# Function to download file from Google Drive using available tools
 download_from_gdrive() {
     local drive_url="$1"
     local destination="$2"
@@ -102,35 +133,62 @@ download_from_gdrive() {
         return 1
     fi
     
+    echo -e "${YELLOW}Downloading file with ID: ${NC}$file_id"
+    
     # Try multiple download methods
     local success=false
     
-    # Method 1: gdown
+    # Method 1: gdown (if available)
     if command_exists gdown; then
-        if gdown --id "$file_id" -O "$destination" >/dev/null 2>&1; then
+        echo -e "${CYAN}Trying download with gdown...${NC}"
+        if gdown --id "$file_id" -O "$destination"; then
             success=true
+            echo -e "${GREEN}Download successful with gdown${NC}"
         fi
     fi
     
-    # Method 2: wget with direct link
-    if [[ "$success" == "false" ]]; then
-        local direct_url="https://drive.google.com/uc?export=download&id=$file_id"
-        if wget --no-check-certificate "$direct_url" -O "$destination" >/dev/null 2>&1; then
-            success=true
+    # Method 2: rclone (if available and configured)
+    if [[ "$success" == "false" ]] && command_exists rclone; then
+        echo -e "${CYAN}Trying download with rclone...${NC}"
+        # Check if there's a Google Drive remote configured
+        if rclone listremotes | grep -q "google:"; then
+            if rclone copy "google:$file_id" "$destination"; then
+                success=true
+                echo -e "${GREEN}Download successful with rclone${NC}"
+            fi
+        else
+            echo -e "${YELLOW}Rclone installed but Google Drive remote not configured${NC}"
         fi
     fi
     
-    # Method 3: curl with direct link
+    # Method 3: wget with direct link
     if [[ "$success" == "false" ]]; then
+        echo -e "${CYAN}Trying download with wget...${NC}"
+        local confirm_param=""
+        # Add confirmation parameter for large files
+        if command_exists wget; then
+            local direct_url="https://drive.google.com/uc?export=download&id=$file_id"
+            if wget --no-check-certificate "$direct_url" -O "$destination"; then
+                success=true
+                echo -e "${GREEN}Download successful with wget${NC}"
+            fi
+        fi
+    fi
+    
+    # Method 4: curl with direct link
+    if [[ "$success" == "false" ]]; then
+        echo -e "${CYAN}Trying download with curl...${NC}"
         local direct_url="https://drive.google.com/uc?export=download&id=$file_id"
-        if curl -L -o "$destination" "$direct_url" >/dev/null 2>&1; then
+        if curl -L -o "$destination" "$direct_url"; then
             success=true
+            echo -e "${GREEN}Download successful with curl${NC}"
         fi
     fi
     
     if [[ "$success" == "true" ]]; then
         return 0
     else
+        echo -e "${RED}All download methods failed${NC}"
         return 1
     fi
 }
@@ -143,8 +201,9 @@ clone_repository() {
     
     # Check if it's a Google Drive URL
     if [[ "$url" == *"drive.google.com"* ]]; then
+        echo -e "${YELLOW}Detected Google Drive URL${NC}"
         # For Google Drive URLs, try to download the file
-        if download_from_gdrive "$url" "$temp_dir/downloaded_file" >/dev/null 2>&1; then
+        if download_from_gdrive "$url" "$temp_dir/downloaded_file"; then
             if [[ -n "$destination" ]]; then
                 # Create destination directory if it doesn't exist
                 mkdir -p "$destination" 2>/dev/null || true
@@ -152,26 +211,31 @@ clone_repository() {
                 # Copy files from temp directory to destination
                 if cp -r "$temp_dir"/* "$destination/" 2>/dev/null; then
                     rm -rf "$temp_dir" 2>/dev/null || true
+                    echo -e "${GREEN}Files copied from Google Drive to destination${NC}"
                     return 0
                 else
                     # If copy fails, try move
                     if mv "$temp_dir"/* "$destination/" 2>/dev/null; then
                         rm -rf "$temp_dir" 2>/dev/null || true
+                        echo -e "${GREEN}Files moved from Google Drive to destination${NC}"
                         return 0
                     fi
                 fi
             else
                 # If no destination specified, just verify the download worked
                 rm -rf "$temp_dir" 2>/dev/null || true
+                echo -e "${GREEN}Download from Google Drive verified${NC}"
                 return 0
             fi
         fi
         
         # Cleanup on failure
         rm -rf "$temp_dir" 2>/dev/null || true
+        echo -e "${RED}Failed to download from Google Drive${NC}"
         return 1
     # Check if it's a gist URL
     elif [[ "$url" == *"gist.github.com"* ]]; then
+        echo -e "${YELLOW}Detected GitHub Gist URL${NC}"
         # For gists, we need to append .git to clone
         local git_url="$url"
         if [[ ! "$git_url" == *".git" ]]; then
@@ -179,7 +243,8 @@ clone_repository() {
         fi
         
         # Try to clone the gist
-        if git clone "$git_url" "$temp_dir" >/dev/null 2>&1; then
+        echo -e "${CYAN}Cloning gist from: ${NC}$git_url"
+        if git clone "$git_url" "$temp_dir"; then
             if [[ -n "$destination" ]]; then
                 # Create destination directory if it doesn't exist
                 mkdir -p "$destination" 2>/dev/null || true
@@ -187,53 +252,67 @@ clone_repository() {
                 # Copy files from temp directory to destination
                 if cp -r "$temp_dir"/* "$destination/" 2>/dev/null; then
                     rm -rf "$temp_dir" 2>/dev/null || true
+                    echo -e "${GREEN}Gist files copied to destination${NC}"
                     return 0
                 else
                     # If copy fails, try move
                     if mv "$temp_dir" "$destination" 2>/dev/null; then
+                        echo -e "${GREEN}Gist moved to destination${NC}"
                         return 0
                     fi
                 fi
             else
                 # If no destination specified, just verify the clone worked
                 rm -rf "$temp_dir" 2>/dev/null || true
+                echo -e "${GREEN}Gist clone verified${NC}"
                 return 0
             fi
         fi
         
         # Cleanup on failure
         rm -rf "$temp_dir" 2>/dev/null || true
+        echo -e "${RED}Failed to clone gist${NC}"
         return 1
     else
+        echo -e "${YELLOW}Detected regular GitHub repository URL${NC}"
         # Regular git repository
         if [[ -n "$destination" ]]; then
-            if git clone "$url" "$destination" >/dev/null 2>&1; then
+            echo -e "${CYAN}Cloning repository to: ${NC}$destination"
+            if git clone "$url" "$destination"; then
+                echo -e "${GREEN}Repository cloned successfully${NC}"
                 return 0
             fi
         else
-            if git clone "$url" "$temp_dir" >/dev/null 2>&1; then
+            echo -e "${CYAN}Cloning repository for verification${NC}"
+            if git clone "$url" "$temp_dir"; then
                 rm -rf "$temp_dir" 2>/dev/null || true
+                echo -e "${GREEN}Repository clone verified${NC}"
                 return 0
             fi
         fi
+        echo -e "${RED}Failed to clone repository${NC}"
         return 1
     fi
 }
 
-# Function to download single file from gist or Google Drive
+# Function to download single file from gist, GitHub or Google Drive
 download_file() {
     local url="$1"
     local destination="$2"
     
     # Check if it's a Google Drive URL
     if [[ "$url" == *"drive.google.com"* ]]; then
+        echo -e "${YELLOW}Downloading file from Google Drive${NC}"
         if download_from_gdrive "$url" "$destination"; then
+            echo -e "${GREEN}File downloaded successfully from Google Drive${NC}"
             return 0
         else
+            echo -e "${RED}Failed to download file from Google Drive${NC}"
             return 1
         fi
     # Check if it's a gist URL
     elif [[ "$url" == *"gist.github.com"* ]]; then
+        echo -e "${YELLOW}Downloading file from GitHub Gist${NC}"
         # Extract username and gist ID from different gist URL formats
         # Format 1: https://gist.github.com/username/gist_id
         # Format 2: https://gist.github.com/gist_id
@@ -267,42 +346,55 @@ download_file() {
         # Clean gist_id (remove any trailing parameters)
         gist_id=$(echo "$gist_id" | sed 's/[?#].*//')
         
+        echo -e "${CYAN}Extracted Gist ID: ${NC}$gist_id"
+        
         # Try multiple methods to download the gist
         local success=false
         
         # Method 1: Try with username
         if [[ -n "$username" && "$username" != "anonymous" ]]; then
             local raw_url="https://gist.githubusercontent.com/$username/$gist_id/raw/"
-            if curl -s -f "$raw_url" -o "$destination" 2>/dev/null; then
+            echo -e "${CYAN}Trying URL: ${NC}$raw_url"
+            if curl -s -f "$raw_url" -o "$destination"; then
                 success=true
+                echo -e "${GREEN}Downloaded with username method${NC}"
             fi
         fi
         
         # Method 2: Try without username (for anonymous gists)
         if [[ "$success" == "false" ]]; then
             local raw_url="https://gist.githubusercontent.com/$gist_id/raw/"
-            if curl -s -f "$raw_url" -o "$destination" 2>/dev/null; then
+            echo -e "${CYAN}Trying URL: ${NC}$raw_url"
+            if curl -s -f "$raw_url" -o "$destination"; then
                 success=true
+                echo -e "${GREEN}Downloaded with anonymous gist method${NC}"
             fi
         fi
         
         # Method 3: Try to get the raw URL by scraping the gist page
         if [[ "$success" == "false" ]]; then
+            echo -e "${CYAN}Trying to scrape raw URL from gist page${NC}"
             local raw_url=$(curl -s "$url" | grep -o 'https://gist.githubusercontent.com/[^"]*' | head -n1)
             if [[ -n "$raw_url" ]]; then
-                if curl -s -f "$raw_url" -o "$destination" 2>/dev/null; then
+                echo -e "${CYAN}Found raw URL: ${NC}$raw_url"
+                if curl -s -f "$raw_url" -o "$destination"; then
                     success=true
+                    echo -e "${GREEN}Downloaded with scraped URL method${NC}"
                 fi
             fi
         fi
         
         # Method 4: Use GitHub API to get the raw content
         if [[ "$success" == "false" ]]; then
+            echo -e "${CYAN}Trying GitHub API method${NC}"
             local api_url="https://api.github.com/gists/$gist_id"
+            echo -e "${CYAN}API URL: ${NC}$api_url"
             local raw_content=$(curl -s "$api_url" | grep -o '"raw_url":"[^"]*' | head -n1 | sed 's/"raw_url":"//')
             if [[ -n "$raw_content" ]]; then
-                if curl -s -f "$raw_content" -o "$destination" 2>/dev/null; then
+                echo -e "${CYAN}Found raw content URL: ${NC}$raw_content"
+                if curl -s -f "$raw_content" -o "$destination"; then
                     success=true
+                    echo -e "${GREEN}Downloaded with GitHub API method${NC}"
                 fi
             fi
         fi
@@ -310,22 +402,39 @@ download_file() {
         if [[ "$success" == "true" ]]; then
             return 0
         else
+            echo -e "${RED}All gist download methods failed${NC}"
             return 1
         fi
     # Regular GitHub URL
     elif [[ "$url" == *"github.com"* && ! "$url" == *"gist.github.com"* ]]; then
+        echo -e "${YELLOW}Downloading file from GitHub repository${NC}"
         # Convert GitHub URL to raw content URL
         raw_url=$(echo "$url" | sed 's|github.com|raw.githubusercontent.com|' | sed 's|/blob/||')
         if [[ ! "$raw_url" == *"/main/"* ]] && [[ ! "$raw_url" == *"/master/"* ]]; then
             raw_url="${raw_url}/main"
         fi
         
+        echo -e "${CYAN}Converted to raw URL: ${NC}$raw_url"
+        
         # Try to download
-        if curl -s -f "$raw_url" -o "$destination" 2>/dev/null; then
+        if curl -s -f "$raw_url" -o "$destination"; then
+            echo -e "${GREEN}Downloaded successfully from GitHub${NC}"
             return 0
         else
-            return 1
+            # Try master branch if main fails
+            raw_url=$(echo "$url" | sed 's|github.com|raw.githubusercontent.com|' | sed 's|/blob/||' | sed 's|/main/|/master/|')
+            echo -e "${CYAN}Trying master branch: ${NC}$raw_url"
+            if curl -s -f "$raw_url" -o "$destination"; then
+                echo -e "${GREEN}Downloaded successfully from GitHub (master branch)${NC}"
+                return 0
+            else
+                echo -e "${RED}Failed to download from GitHub${NC}"
+                return 1
+            fi
         fi
+    else
+        echo -e "${RED}URL format not recognized${NC}"
+        return 1
     fi
     
     return 1
@@ -395,13 +504,13 @@ echo -e "${CYAN}===========================================================${NC}
 
 # System Update
 echo -e "\n${CYAN}[1/12] System Update & Essential Packages${NC}"
-if sudo apt-get update >/dev/null 2>&1 && sudo apt-get upgrade -y >/dev/null 2>&1; then
+if sudo apt-get update && sudo apt-get upgrade -y; then
     log_install_report "System Update" "SUCCESS" "System updated successfully"
 else
     log_install_report "System Update" "FAILED" "Failed to update system"
 fi
 
-if sudo apt install screen curl iptables build-essential git wget lz4 jq make gcc nano automake autoconf tmux htop nvme-cli libgbm1 pkg-config libssl-dev libleveldb-dev tar clang bsdmainutils ncdu unzip -y >/dev/null 2>&1; then
+if sudo apt install screen curl iptables build-essential git wget lz4 jq make gcc nano automake autoconf tmux htop nvme-cli libgbm1 pkg-config libssl-dev libleveldb-dev tar clang bsdmainutils ncdu unzip -y; then
     log_install_report "Essential Packages" "SUCCESS" "All essential packages installed"
 else
     log_install_report "Essential Packages" "FAILED" "Some essential packages failed to install"
@@ -411,7 +520,7 @@ fi
 echo -e "\n${CYAN}[1.5/12] Google Drive Tools Installation${NC}"
 install_gdrive_tools
 if [ $? -eq 0 ]; then
-    log_install_report "Google Drive Tools" "SUCCESS" "Installed successfully"
+    log_install_report "Google Drive Tools" "SUCCESS" "At least one tool installed successfully"
 else
     log_install_report "Google Drive Tools" "FAILED" "Failed to install Google Drive tools"
 fi
@@ -419,45 +528,45 @@ fi
 # Docker Installation
 echo -e "\n${CYAN}[2/12] Docker Installation${NC}"
 if command_exists docker; then
-    log_install_report "Docker" "SKIP" "Already installed - $(docker --version 2>/dev/null || echo 'version unknown')"
+    log_install_report "Docker" "SKIP" "Already installed - $(docker --version || echo 'version unknown')"
 else
     # Remove old Docker versions silently
     for pkg in docker.io docker-doc docker-compose podman-docker containerd runc; do 
-        sudo apt-get remove -y $pkg >/dev/null 2>&1 || true
+        sudo apt-get remove -y $pkg || true
     done
 
     # Primary installation method
-    if sudo apt install apt-transport-https ca-certificates curl software-properties-common -y >/dev/null 2>&1 && \
-       curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg >/dev/null 2>&1 && \
-       echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null && \
-       sudo apt update >/dev/null 2>&1 && \
-       sudo apt install docker-ce docker-ce-cli containerd.io -y >/dev/null 2>&1; then
+    if sudo apt install apt-transport-https ca-certificates curl software-properties-common -y && \
+       curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg && \
+       echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null && \
+       sudo apt update && \
+       sudo apt install docker-ce docker-ce-cli containerd.io -y; then
         
-        sudo systemctl enable docker >/dev/null 2>&1
-        sudo systemctl start docker >/dev/null 2>&1
-        sudo usermod -aG docker $USER >/dev/null 2>&1
+        sudo systemctl enable docker
+        sudo systemctl start docker
+        sudo usermod -aG docker $USER
         
-        if sudo docker run hello-world >/dev/null 2>&1; then
-            DOCKER_VERSION=$(docker --version 2>/dev/null || echo "version unknown")
+        if sudo docker run hello-world; then
+            DOCKER_VERSION=$(docker --version || echo "version unknown")
             log_install_report "Docker" "SUCCESS" "$DOCKER_VERSION - Service running"
         else
             log_install_report "Docker" "FAILED" "Installed but functionality test failed"
         fi
     else
         # Fallback installation
-        if sudo apt remove -y docker docker-engine docker.io containerd runc >/dev/null 2>&1 && \
-           sudo mkdir -p /etc/apt/keyrings >/dev/null 2>&1 && \
-           curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg >/dev/null 2>&1 && \
-           echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null && \
-           sudo apt update >/dev/null 2>&1 && \
-           sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin >/dev/null 2>&1; then
+        if sudo apt remove -y docker docker-engine docker.io containerd runc && \
+           sudo mkdir -p /etc/apt/keyrings && \
+           curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg && \
+           echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null && \
+           sudo apt update && \
+           sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; then
             
-            sudo systemctl enable docker >/dev/null 2>&1
-            sudo systemctl start docker >/dev/null 2>&1
-            sudo usermod -aG docker $USER >/dev/null 2>&1
+            sudo systemctl enable docker
+            sudo systemctl start docker
+            sudo usermod -aG docker $USER
             
-            if sudo docker run hello-world >/dev/null 2>&1; then
-                DOCKER_VERSION=$(docker --version 2>/dev/null || echo "version unknown")
+            if sudo docker run hello-world; then
+                DOCKER_VERSION=$(docker --version || echo "version unknown")
                 log_install_report "Docker (Fallback)" "SUCCESS" "$DOCKER_VERSION - Service running"
             else
                 log_install_report "Docker (Fallback)" "FAILED" "Installed but functionality test failed"
@@ -470,9 +579,9 @@ fi
 
 # Python Installation
 echo -e "\n${CYAN}[3/12] Python Installation${NC}"
-if sudo apt-get install python3 python3-pip python3-venv python3-dev -y >/dev/null 2>&1; then
-    PYTHON_VERSION=$(python3 --version 2>/dev/null || echo "version unknown")
-    PIP_VERSION=$(pip3 --version 2>/dev/null || echo "version unknown")
+if sudo apt-get install python3 python3-pip python3-venv python3-dev -y; then
+    PYTHON_VERSION=$(python3 --version || echo "version unknown")
+    PIP_VERSION=$(pip3 --version || echo "version unknown")
     log_install_report "Python3" "SUCCESS" "$PYTHON_VERSION"
     log_install_report "pip3" "SUCCESS" "$PIP_VERSION"
 else
@@ -482,12 +591,12 @@ fi
 # Node.js Installation
 echo -e "\n${CYAN}[4/12] Node.js Installation${NC}"
 if command_exists node; then
-    NODE_VERSION=$(node --version 2>/dev/null || echo "version unknown")
+    NODE_VERSION=$(node --version || echo "version unknown")
     log_install_report "Node.js" "SKIP" "Already installed - $NODE_VERSION"
 else
-    if curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - >/dev/null 2>&1 && \
-       sudo apt-get install -y nodejs >/dev/null 2>&1; then
-        NODE_VERSION=$(node --version 2>/dev/null || echo "version unknown")
+    if curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - && \
+       sudo apt-get install -y nodejs; then
+        NODE_VERSION=$(node --version || echo "version unknown")
         log_install_report "Node.js" "SUCCESS" "$NODE_VERSION"
     else
         log_install_report "Node.js" "FAILED" "Failed to install Node.js"
@@ -497,17 +606,17 @@ fi
 # Yarn Installation
 echo -e "\n${CYAN}[5/12] Yarn Installation${NC}"
 if command_exists yarn; then
-    YARN_VERSION=$(yarn --version 2>/dev/null || echo "version unknown")
+    YARN_VERSION=$(yarn --version || echo "version unknown")
     log_install_report "Yarn" "SKIP" "Already installed - v$YARN_VERSION"
 else
-    if sudo npm install -g yarn >/dev/null 2>&1; then
-        YARN_VERSION=$(yarn --version 2>/dev/null || echo "version unknown")
+    if sudo npm install -g yarn; then
+        YARN_VERSION=$(yarn --version || echo "version unknown")
         log_install_report "Yarn (npm)" "SUCCESS" "v$YARN_VERSION"
     else
         # Alternative yarn installation
-        if curl -o- -L https://yarnpkg.com/install.sh | bash >/dev/null 2>&1; then
+        if curl -o- -L https://yarnpkg.com/install.sh | bash; then
             export PATH="$HOME/.yarn/bin:$HOME/.config/yarn/global/node_modules/.bin:$PATH"
-            YARN_VERSION=$(yarn --version 2>/dev/null || echo "version unknown")
+            YARN_VERSION=$(yarn --version || echo "version unknown")
             log_install_report "Yarn (alternative)" "SUCCESS" "v$YARN_VERSION"
         else
             log_install_report "Yarn" "FAILED" "Both installation methods failed"
@@ -520,7 +629,7 @@ echo -e "\n${CYAN}[6/12] Main Repository (rl-swarm)${NC}"
 if [ -d "rl-swarm" ]; then
     log_install_report "rl-swarm Repository" "SKIP" "Directory already exists"
 else
-    if git clone https://github.com/gensyn-ai/rl-swarm/ >/dev/null 2>&1; then
+    if git clone https://github.com/gensyn-ai/rl-swarm/; then
         chmod +x ~/rl-swarm/run_rl_swarm.sh 2>/dev/null || true
         chmod +x ~/rl-swarm/run_and_alert.sh 2>/dev/null || true
         log_install_report "rl-swarm Repository" "SUCCESS" "Cloned and permissions set"
@@ -531,10 +640,10 @@ fi
 
 # UFW Firewall
 echo -e "\n${CYAN}[7/12] Firewall Configuration${NC}"
-if sudo apt install ufw -y >/dev/null 2>&1; then
-    sudo ufw --force enable >/dev/null 2>&1
-    sudo ufw allow 22 >/dev/null 2>&1
-    sudo ufw allow 3000/tcp >/dev/null 2>&1
+if sudo apt install ufw -y; then
+    sudo ufw --force enable
+    sudo ufw allow 22
+    sudo ufw allow 3000/tcp
     log_install_report "UFW Firewall" "SUCCESS" "Enabled with SSH (22) and port 3000 allowed"
 else
     log_install_report "UFW Firewall" "FAILED" "Failed to install or configure UFW"
@@ -547,7 +656,7 @@ if command_exists cloudflared; then
     log_install_report "Cloudflared" "SKIP" "Already installed - $CLOUDFLARED_VERSION"
 else
     if wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb && \
-       sudo dpkg -i cloudflared-linux-amd64.deb >/dev/null 2>&1; then
+       sudo dpkg -i cloudflared-linux-amd64.deb; then
         rm cloudflared-linux-amd64.deb 2>/dev/null || true
         CLOUDFLARED_VERSION=$(cloudflared --version 2>/dev/null | head -n1 || echo "version unknown")
         log_install_report "Cloudflared" "SUCCESS" "$CLOUDFLARED_VERSION"
@@ -560,13 +669,13 @@ fi
 echo -e "\n${CYAN}[9/12] Configuration Files${NC}"
 mkdir -p $HOME/rl-swarm/hivemind_exp/configs/mac/ 2>/dev/null || true
 
-if curl -o $HOME/rl-swarm/hivemind_exp/configs/mac/grpo-qwen-2.5-0.5b-deepseek-r1.yaml https://raw.githubusercontent.com/arookiecoder-ip/Gensyn-AI-Errors-Solution/main/grpo-qwen-2.5-0.5b-deepseek-r1.yaml >/dev/null 2>&1; then
+if curl -o $HOME/rl-swarm/hivemind_exp/configs/mac/grpo-qwen-2.5-0.5b-deepseek-r1.yaml https://raw.githubusercontent.com/arookiecoder-ip/Gensyn-AI-Errors-Solution/main/grpo-qwen-2.5-0.5b-deepseek-r1.yaml; then
     log_install_report "Config File (YAML)" "SUCCESS" "Downloaded to configs/mac/"
 else
     log_install_report "Config File (YAML)" "FAILED" "Failed to download configuration"
 fi
 
-if curl -L https://raw.githubusercontent.com/arookiecoder-ip/Gensyn-AI-Node-Monitoring/main/run_rl_swarm.sh -o ~/rl-swarm/run_rl_swarm.sh >/dev/null 2>&1; then
+if curl -L https://raw.githubusercontent.com/arookiecoder-ip/Gensyn-AI-Node-Monitoring/main/run_rl_swarm.sh -o ~/rl-swarm/run_rl_swarm.sh; then
     log_install_report "Monitoring Script" "SUCCESS" "Downloaded run_rl_swarm.sh"
 else
     log_install_report "Monitoring Script" "FAILED" "Failed to download monitoring script"
@@ -580,8 +689,8 @@ echo -e "${YELLOW}📧 Pre-configuring msmtp to avoid interactive prompts...${NC
 echo "msmtp msmtp/armorsupport boolean false" | sudo debconf-set-selections 2>/dev/null || true
 
 # Install dependencies with DEBIAN_FRONTEND=noninteractive
-if DEBIAN_FRONTEND=noninteractive sudo -E apt-get update >/dev/null 2>&1 && \
-   DEBIAN_FRONTEND=noninteractive sudo -E apt-get install -y expect msmtp curl >/dev/null 2>&1; then
+if DEBIAN_FRONTEND=noninteractive sudo -E apt-get update && \
+   DEBIAN_FRONTEND=noninteractive sudo -E apt-get install -y expect msmtp curl; then
     log_install_report "Email Tools" "SUCCESS" "expect, msmtp, curl installed"
 else
     log_install_report "Email Tools" "FAILED" "Failed to install email tools"
@@ -648,7 +757,7 @@ while true; do
                         full_url="${raw_url}/${file_path}"
                         
                         echo -e "Downloading from: ${CYAN}$full_url${NC}"
-                        if curl -o ~/.msmtprc "$full_url" >/dev/null 2>&1; then
+                        if curl -o ~/.msmtprc "$full_url"; then
                             chmod 600 ~/.msmtprc
                             log_install_report "MSMTP Config (GitHub)" "SUCCESS" "Downloaded from $config_url"
                             success=true
@@ -703,7 +812,7 @@ while true; do
             echo -e "\n${YELLOW}📄 Creating Template Configuration${NC}"
             cat > ~/.msmtprc << 'EOF'
 # MSMTP Configuration File
-# Created on: 2025-06-19 13:08:37 UTC
+# Created on: 2025-06-20 10:50:35 UTC
 # User: arookiecoder-ip
 # 
 # Edit this file with your email settings
